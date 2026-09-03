@@ -17,19 +17,29 @@ import {
   ChevronRight,
   Cloud,
   FileSpreadsheet,
+  MessageSquare,
+  Tag,
+  Calendar,
+  ExternalLink,
+  Check,
+  RefreshCw,
+  PlusCircle,
+  CheckSquare,
+  Quote,
 } from 'lucide-react';
 import { BackupModal } from '../components/BackupModal';
+import { QuickAddModal } from '../components/QuickAddModal';
 import {
   exportToDesignatedSheet,
   getDesignatedSheetConfig,
   DesignatedSheetConfig,
 } from '../services/googleSheetsService';
-import { ExternalLink, Check, RefreshCw } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const { students, history, rewards, selectedClassroom, isCloudSynced } = useStudents();
   const [profileStudent, setProfileStudent] = useState<Student | null>(null);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [sheetSyncFeedback, setSheetSyncFeedback] = useState<{
     success: boolean;
@@ -77,10 +87,44 @@ export const Dashboard: React.FC = () => {
   const sortedStudents = [...filteredStudents].sort((a, b) => b.stars - a.stars);
   const top3 = sortedStudents.slice(0, 3);
 
-  // Recent History
+  // Last 10 Recent Transactions Activity Log
   const recentHistory = history
     .filter((h) => (selectedClassroom === 'all' ? true : h.classroom === selectedClassroom))
-    .slice(0, 5);
+    .slice(0, 10);
+
+  // Helper for formatting activity log timestamps
+  const formatActivityTimestamp = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+
+    let relative = '';
+    if (diffSec < 45) {
+      relative = 'เมื่อสักครู่';
+    } else if (diffSec < 3600) {
+      relative = `${Math.floor(diffSec / 60)} นาทีที่แล้ว`;
+    } else if (diffSec < 86400 && date.getDate() === now.getDate()) {
+      relative = `${Math.floor(diffSec / 3600)} ชม. ที่แล้ว`;
+    } else if (diffSec < 86400 * 2) {
+      relative = 'เมื่อวานนี้';
+    } else {
+      relative = date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+    }
+
+    const timeStr = date.toLocaleTimeString('th-TH', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const fullDateStr = date.toLocaleDateString('th-TH', {
+      day: 'numeric',
+      month: 'short',
+      year: '2-digit',
+    });
+
+    return { relative, timeStr, fullDateStr };
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -110,12 +154,21 @@ export const Dashboard: React.FC = () => {
 
           {/* Quick Action Buttons inside Hero */}
           <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:gap-3">
+            <button
+              type="button"
+              id="hero-quick-add-button"
+              onClick={() => setIsQuickAddOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 via-purple-600 to-pink-600 hover:from-amber-400 hover:to-pink-500 text-white rounded-2xl font-extrabold text-sm shadow-[0_4px_20px_rgba(245,158,11,0.35)] transition-all hover:scale-105 active:scale-95 cursor-pointer border border-amber-300/30 ring-2 ring-purple-500/30"
+            >
+              <Sparkles className="w-4 h-4 text-amber-200 fill-amber-200 animate-pulse" />
+              <span>Quick Add (ให้ดาวหลายคน)</span>
+            </button>
             <Link
               href="/add-star"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-2xl font-bold text-sm shadow-[0_4px_16px_rgba(16,185,129,0.35)] transition-all hover:scale-105 active:scale-95"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-2xl font-bold text-sm shadow-[0_4px_16px_rgba(16,185,129,0.35)] transition-all hover:scale-105 active:scale-95"
             >
               <Sparkles className="w-4 h-4 text-white fill-white" />
-              <span>เพิ่มดาวให้นักเรียน</span>
+              <span>เพิ่มดาวทีละคน</span>
             </Link>
             <Link
               href="/students"
@@ -312,203 +365,281 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Middle section: Top 3 Podium & Recent Activity */}
+      {/* Middle section: Top 3 Podium & Detailed Activity Log */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Top 3 Podium Card (7 cols) */}
-        <div className="lg:col-span-7 bg-[#150a24] rounded-3xl p-6 border border-white/10 shadow-lg shadow-purple-950/20 flex flex-col justify-between">
-          <div className="flex items-center justify-between pb-4 border-b border-white/10">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center">
-                <Trophy className="w-4 h-4" />
+        {/* Top 3 Podium Card (5 cols on large screens) */}
+        <div className="lg:col-span-5 bg-[#150a24] rounded-3xl p-6 border border-white/10 shadow-lg shadow-purple-950/20 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                  <Trophy className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white font-heading flex items-center gap-1.5">
+                    <span>👑</span> 3 อันดับสูงสุด (Top 3)
+                  </h2>
+                  <p className="text-xs text-slate-400">คลิกที่นักเรียนเพื่อดูโปรไฟล์และประวัติ</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-bold text-white font-heading flex items-center gap-1.5">
-                  <span>👑</span> 3 อันดับสูงสุด (Top 3)
-                </h2>
-                <p className="text-xs text-slate-400">คลิกที่นักเรียนเพื่อดูโปรไฟล์และประวัติ</p>
-              </div>
+              <Link
+                href="/leaderboard"
+                className="text-xs font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1 group"
+              >
+                <span>ดูอันดับ</span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Link>
             </div>
-            <Link
-              href="/leaderboard"
-              className="text-xs font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1 group"
-            >
-              <span>ดูอันดับทั้งหมด</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-            </Link>
+
+            {/* Top 3 Podium Visual */}
+            {top3.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 text-sm">
+                ยังไม่มีข้อมูลนักเรียนในห้องเรียนนี้
+              </div>
+            ) : (
+              <div className="py-8 grid grid-cols-3 gap-2 sm:gap-3 items-end">
+                {/* 2nd Place */}
+                {top3[1] ? (
+                  <div
+                    onClick={() => setProfileStudent(top3[1])}
+                    className="bg-white/5 border border-white/10 p-3 sm:p-4 rounded-3xl text-center relative pt-7 flex flex-col items-center cursor-pointer group hover:bg-white/10 transition-all"
+                  >
+                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-9 h-9 sm:w-10 sm:h-10 bg-slate-300 rounded-full border-4 border-[#120524] flex items-center justify-center font-bold text-[#120524] text-xs sm:text-sm shadow-md">
+                      2
+                    </div>
+                    <StudentAvatar
+                      name={top3[1].name}
+                      avatarUrl={top3[1].avatarUrl}
+                      size="md"
+                      className="border-2 border-slate-300 shadow-md mb-1.5 group-hover:scale-105 transition-transform"
+                    />
+                    <p className="font-bold text-slate-200 text-xs truncate w-full px-1 group-hover:text-amber-300">
+                      {top3[1].nickname || top3[1].name}
+                    </p>
+                    <p className="text-[10px] text-slate-400">{top3[1].classroom}</p>
+                    <p className="text-lg sm:text-xl font-black text-amber-400 drop-shadow-md mt-1">
+                      {top3[1].stars} <span className="text-xs font-normal text-amber-300">⭐</span>
+                    </p>
+                    <div className="mt-2 h-1 w-10 bg-slate-300/50 mx-auto rounded-full" />
+                  </div>
+                ) : (
+                  <div />
+                )}
+
+                {/* 1st Place */}
+                {top3[0] ? (
+                  <div
+                    onClick={() => setProfileStudent(top3[0])}
+                    className="bg-white/10 border border-amber-400/30 p-4 sm:p-5 rounded-3xl text-center relative pt-9 ring-4 ring-amber-400/20 scale-105 flex flex-col items-center shadow-[0_0_30px_rgba(251,191,36,0.15)] cursor-pointer group hover:border-amber-400 transition-all"
+                  >
+                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 w-12 h-12 sm:w-14 sm:h-14 bg-amber-400 rounded-full border-4 border-[#120524] flex items-center justify-center font-bold text-[#120524] text-base sm:text-lg shadow-[0_0_20px_#fbbf24]">
+                      1
+                    </div>
+                    <StudentAvatar
+                      name={top3[0].name}
+                      avatarUrl={top3[0].avatarUrl}
+                      size="lg"
+                      className="border-2 border-amber-400 shadow-[0_0_12px_#fbbf24] mb-1.5 group-hover:scale-105 transition-transform"
+                    />
+                    <p className="font-bold text-white text-xs sm:text-sm truncate w-full px-1 group-hover:underline">
+                      {top3[0].nickname || top3[0].name}
+                    </p>
+                    <p className="text-[10px] text-amber-300/80">{top3[0].classroom}</p>
+                    <p className="text-xl sm:text-2xl font-black text-amber-400 drop-shadow-md mt-1">
+                      {top3[0].stars} <span className="text-xs font-normal text-amber-300">⭐</span>
+                    </p>
+                    <div className="mt-2 h-1.5 w-14 bg-amber-400 mx-auto rounded-full shadow-[0_0_8px_#fbbf24]" />
+                  </div>
+                ) : (
+                  <div />
+                )}
+
+                {/* 3rd Place */}
+                {top3[2] ? (
+                  <div
+                    onClick={() => setProfileStudent(top3[2])}
+                    className="bg-white/5 border border-white/10 p-3 sm:p-4 rounded-3xl text-center relative pt-7 flex flex-col items-center cursor-pointer group hover:bg-white/10 transition-all"
+                  >
+                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-9 h-9 sm:w-10 sm:h-10 bg-orange-700 rounded-full border-4 border-[#120524] flex items-center justify-center font-bold text-white text-xs sm:text-sm shadow-md">
+                      3
+                    </div>
+                    <StudentAvatar
+                      name={top3[2].name}
+                      avatarUrl={top3[2].avatarUrl}
+                      size="md"
+                      className="border-2 border-orange-500 shadow-md mb-1.5 group-hover:scale-105 transition-transform"
+                    />
+                    <p className="font-bold text-slate-200 text-xs truncate w-full px-1 group-hover:text-amber-300">
+                      {top3[2].nickname || top3[2].name}
+                    </p>
+                    <p className="text-[10px] text-slate-400">{top3[2].classroom}</p>
+                    <p className="text-lg sm:text-xl font-black text-amber-400 drop-shadow-md mt-1">
+                      {top3[2].stars} <span className="text-xs font-normal text-amber-300">⭐</span>
+                    </p>
+                    <div className="mt-2 h-1 w-10 bg-orange-700/50 mx-auto rounded-full" />
+                  </div>
+                ) : (
+                  <div />
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Top 3 Podium Visual */}
-          {top3.length === 0 ? (
-            <div className="py-12 text-center text-slate-500 text-sm">
-              ยังไม่มีข้อมูลนักเรียนในห้องเรียนนี้
-            </div>
-          ) : (
-            <div className="py-8 grid grid-cols-3 gap-3 sm:gap-4 items-end">
-              {/* 2nd Place */}
-              {top3[1] ? (
-                <div
-                  onClick={() => setProfileStudent(top3[1])}
-                  className="bg-white/5 border border-white/10 p-4 sm:p-5 rounded-3xl text-center relative pt-8 flex flex-col items-center cursor-pointer group hover:bg-white/10 transition-all"
-                >
-                  <div className="absolute -top-5 left-1/2 -translate-x-1/2 w-11 h-11 sm:w-12 sm:h-12 bg-slate-300 rounded-full border-4 border-[#120524] flex items-center justify-center font-bold text-[#120524] text-sm shadow-md">
-                    2
-                  </div>
-                  <StudentAvatar
-                    name={top3[1].name}
-                    avatarUrl={top3[1].avatarUrl}
-                    size="md"
-                    className="border-2 border-slate-300 shadow-md mb-1.5 group-hover:scale-105 transition-transform"
-                  />
-                  <p className="font-bold text-slate-200 text-xs sm:text-sm truncate w-full px-1 group-hover:text-amber-300">
-                    {top3[1].nickname || top3[1].name}
-                  </p>
-                  <p className="text-[10px] text-slate-400">{top3[1].classroom}</p>
-                  <p className="text-xl sm:text-2xl font-black text-amber-400 drop-shadow-md mt-1">
-                    {top3[1].stars} <span className="text-xs font-normal text-amber-300">⭐</span>
-                  </p>
-                  <div className="mt-2 h-1 w-12 bg-slate-300/50 mx-auto rounded-full" />
-                </div>
-              ) : (
-                <div />
-              )}
-
-              {/* 1st Place */}
-              {top3[0] ? (
-                <div
-                  onClick={() => setProfileStudent(top3[0])}
-                  className="bg-white/10 border border-amber-400/30 p-5 sm:p-6 rounded-3xl text-center relative pt-10 ring-4 ring-amber-400/20 scale-105 flex flex-col items-center shadow-[0_0_30px_rgba(251,191,36,0.15)] cursor-pointer group hover:border-amber-400 transition-all"
-                >
-                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 w-14 h-14 sm:w-16 sm:h-16 bg-amber-400 rounded-full border-4 border-[#120524] flex items-center justify-center font-bold text-[#120524] text-lg sm:text-xl shadow-[0_0_20px_#fbbf24]">
-                    1
-                  </div>
-                  <StudentAvatar
-                    name={top3[0].name}
-                    avatarUrl={top3[0].avatarUrl}
-                    size="lg"
-                    className="border-2 border-amber-400 shadow-[0_0_12px_#fbbf24] mb-1.5 group-hover:scale-105 transition-transform"
-                  />
-                  <p className="font-bold text-white text-xs sm:text-base truncate w-full px-1 group-hover:underline">
-                    {top3[0].nickname || top3[0].name}
-                  </p>
-                  <p className="text-[10px] text-amber-300/80">{top3[0].classroom}</p>
-                  <p className="text-2xl sm:text-3xl font-black text-amber-400 drop-shadow-md mt-1">
-                    {top3[0].stars} <span className="text-xs font-normal text-amber-300">⭐</span>
-                  </p>
-                  <div className="mt-2 h-1.5 w-16 bg-amber-400 mx-auto rounded-full shadow-[0_0_8px_#fbbf24]" />
-                </div>
-              ) : (
-                <div />
-              )}
-
-              {/* 3rd Place */}
-              {top3[2] ? (
-                <div
-                  onClick={() => setProfileStudent(top3[2])}
-                  className="bg-white/5 border border-white/10 p-4 sm:p-5 rounded-3xl text-center relative pt-8 flex flex-col items-center cursor-pointer group hover:bg-white/10 transition-all"
-                >
-                  <div className="absolute -top-5 left-1/2 -translate-x-1/2 w-11 h-11 sm:w-12 sm:h-12 bg-orange-700 rounded-full border-4 border-[#120524] flex items-center justify-center font-bold text-white text-sm shadow-md">
-                    3
-                  </div>
-                  <StudentAvatar
-                    name={top3[2].name}
-                    avatarUrl={top3[2].avatarUrl}
-                    size="md"
-                    className="border-2 border-orange-500 shadow-md mb-1.5 group-hover:scale-105 transition-transform"
-                  />
-                  <p className="font-bold text-slate-200 text-xs sm:text-sm truncate w-full px-1 group-hover:text-amber-300">
-                    {top3[2].nickname || top3[2].name}
-                  </p>
-                  <p className="text-[10px] text-slate-400">{top3[2].classroom}</p>
-                  <p className="text-xl sm:text-2xl font-black text-amber-400 drop-shadow-md mt-1">
-                    {top3[2].stars} <span className="text-xs font-normal text-amber-300">⭐</span>
-                  </p>
-                  <div className="mt-2 h-1 w-12 bg-orange-700/50 mx-auto rounded-full" />
-                </div>
-              ) : (
-                <div />
-              )}
-            </div>
-          )}
-
           <div className="mt-2 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
-            <span>อัปเดตแบบเรียลไทม์ตามจำนวนดาว</span>
+            <span>อัปเดตแบบเรียลไทม์</span>
             <Link href="/add-star" className="text-purple-400 font-semibold hover:text-purple-300 hover:underline">
               + ให้ดาวเพิ่ม
             </Link>
           </div>
         </div>
 
-        {/* Recent Activity Log (5 cols) */}
-        <div className="lg:col-span-5 bg-[#150a24] rounded-3xl p-6 border border-white/10 shadow-lg shadow-purple-950/20 flex flex-col justify-between">
+        {/* Detailed Activity Log (7 cols on large screens - Last 10 Transactions) */}
+        <div className="lg:col-span-7 bg-[#150a24] rounded-3xl p-6 border border-white/10 shadow-lg shadow-purple-950/20 flex flex-col justify-between">
           <div>
+            {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-white/10">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 text-purple-300 flex items-center justify-center">
-                  <Clock className="w-4 h-4" />
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-purple-600/20 border border-purple-500/30 text-purple-300 flex items-center justify-center shadow-sm">
+                  <Clock className="w-4 h-4 text-purple-300" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-white font-heading">
-                    ประวัติกิจกรรมล่าสุด
-                  </h2>
-                  <p className="text-xs text-slate-400">ประวัติการบันทึกดาว</p>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-white font-heading">
+                      บันทึกกิจกรรมล่าสุด (Activity Log)
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      10 รายการล่าสุด
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    ประวัติการมอบดาว พร้อมหมายเหตุครูผู้สอนและเวลาบันทึก
+                  </p>
                 </div>
               </div>
+
               <Link
                 href="/history"
-                className="text-xs font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                className="text-xs font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1 group py-1 px-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
               >
                 <span>ดูทั้งหมด</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
               </Link>
             </div>
 
-            <div className="mt-4 space-y-4">
+            {/* List of 10 Activity Items */}
+            <div className="mt-4 space-y-3 max-h-[480px] overflow-y-auto pr-1.5 custom-scrollbar">
               {recentHistory.length === 0 ? (
-                <div className="py-10 text-center text-slate-500 text-xs">
-                  ยังไม่มีประวัติการให้ดาวในห้องนี้
+                <div className="py-14 text-center text-slate-500 text-xs bg-black/20 rounded-2xl border border-white/5 flex flex-col items-center justify-center gap-2">
+                  <Clock className="w-8 h-8 text-slate-600" />
+                  <p>ยังไม่มีประวัติการให้ดาวในห้องนี้</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickAddOpen(true)}
+                    className="mt-1 px-3 py-1.5 bg-purple-600/30 text-purple-300 hover:bg-purple-600/50 rounded-xl text-xs font-semibold transition-colors"
+                  >
+                    + เริ่มมอบดาวคนแรก
+                  </button>
                 </div>
               ) : (
                 recentHistory.map((item, idx) => {
                   const isPositive = item.amount > 0;
                   const matchingStudent = students.find((s) => s.id === item.studentId);
+                  const timeInfo = formatActivityTimestamp(item.timestamp);
 
                   return (
                     <div
-                      key={item.id}
-                      className="flex gap-3 relative cursor-pointer group"
+                      key={item.id || `hist-${idx}`}
                       onClick={() => matchingStudent && setProfileStudent(matchingStudent)}
+                      className="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/40 rounded-2xl p-3.5 transition-all duration-200 cursor-pointer group shadow-xs hover:shadow-md relative overflow-hidden"
                       title="คลิกเพื่อดูโปรไฟล์นักเรียน"
                     >
+                      {/* Left color accent strip */}
                       <div
-                        className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 z-10 ${
-                          isPositive ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-rose-500'
+                        className={`absolute left-0 top-0 bottom-0 w-1 ${
+                          isPositive ? 'bg-emerald-400' : 'bg-rose-500'
                         }`}
                       />
-                      {idx !== recentHistory.length - 1 && (
-                        <div className="absolute left-[4px] top-3.5 w-0.5 h-full bg-white/10" />
-                      )}
-                      <div className="flex-1 pb-1">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
-                            {item.studentName}{' '}
-                            <span
-                              className={isPositive ? 'text-emerald-400' : 'text-rose-400'}
-                            >
-                              {isPositive ? `+${item.amount}` : item.amount} ⭐
-                            </span>
-                          </p>
-                          <span className="text-[10px] text-slate-500">
-                            {new Date(item.timestamp).toLocaleTimeString('th-TH', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+
+                      <div className="flex items-start justify-between gap-3 pl-1.5">
+                        {/* Avatar & Student Name */}
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                          <div className="shrink-0 mt-0.5">
+                            <StudentAvatar
+                              name={item.studentName}
+                              avatarUrl={matchingStudent?.avatarUrl}
+                              size="sm"
+                            />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            {/* Student Name + Badges */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
+                                {item.studentName}
+                              </span>
+                              {matchingStudent?.nickname && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/20 text-purple-300 font-medium shrink-0">
+                                  ({matchingStudent.nickname})
+                                </span>
+                              )}
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white/10 text-slate-300 font-medium shrink-0">
+                                ห้อง {item.classroom}
+                              </span>
+                            </div>
+
+                            {/* Category & Date/Time Row */}
+                            <div className="flex items-center gap-2 flex-wrap mt-1 text-[11px] text-slate-400">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 font-medium border border-purple-500/30 text-[10px]">
+                                <Tag className="w-2.5 h-2.5 text-purple-400" />
+                                {item.category}
+                              </span>
+
+                              <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                                <Calendar className="w-2.5 h-2.5 text-slate-500" />
+                                {timeInfo.fullDateStr}
+                              </span>
+
+                              <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                                <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                {timeInfo.timeStr} น.
+                              </span>
+
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-black/40 text-slate-400 border border-white/5 font-mono">
+                                {timeInfo.relative}
+                              </span>
+                            </div>
+
+                            {/* Teacher's Note (Prominently Styled Box) */}
+                            {item.note && item.note.trim() && (
+                              <div className="mt-2 p-2.5 bg-[#0e0618]/90 border border-purple-500/25 rounded-xl text-xs text-slate-200 flex items-start gap-2 shadow-inner">
+                                <MessageSquare className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-[10px] text-purple-300 font-bold block uppercase tracking-wider mb-0.5">
+                                    บันทึกของคุณครู (Teacher's Note):
+                                  </span>
+                                  <p className="text-slate-200 italic leading-relaxed text-xs break-words">
+                                    "{item.note.trim()}"
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Stars Pill Badge */}
+                        <div className="shrink-0 flex items-center">
+                          <span
+                            className={`px-2.5 py-1 rounded-xl text-xs font-black flex items-center gap-1 shadow-sm ${
+                              isPositive
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-emerald-950/40'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-rose-950/40'
+                            }`}
+                          >
+                            <span>{isPositive ? `+${item.amount}` : item.amount}</span>
+                            <span className="text-[11px]">⭐</span>
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {item.category}{' '}
-                          <span className="text-purple-400">({item.classroom})</span>
-                          {item.note && <span className="text-slate-500"> • {item.note}</span>}
-                        </p>
                       </div>
                     </div>
                   );
@@ -517,17 +648,61 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-white/10">
-            <Link
-              href="/add-star"
-              className="w-full py-2.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              บันทึกคะแนนความดีด่วน
-            </Link>
+          {/* Activity Log Footer with Quick Add Button */}
+          <div className="mt-4 pt-3 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+            <span className="text-xs text-slate-400">
+              รวมประวัติทั้งหมด{' '}
+              <strong className="text-purple-300 font-bold">
+                {history.filter((h) => selectedClassroom === 'all' || h.classroom === selectedClassroom).length}
+              </strong>{' '}
+              รายการ
+            </span>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setIsQuickAddOpen(true)}
+                className="flex-1 sm:flex-none px-3.5 py-2 bg-gradient-to-r from-amber-500/20 via-purple-600/30 to-pink-600/20 hover:from-amber-500/30 hover:to-pink-600/30 text-amber-200 border border-amber-400/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                <span>Quick Add หลายคน</span>
+              </button>
+              <Link
+                href="/add-star"
+                className="flex-1 sm:flex-none px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center"
+              >
+                <span>เพิ่มดาวทีละคน</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Floating Action Button (FAB): Quick Add Multi-Student Star Award */}
+      <div className="fixed bottom-6 right-6 z-40 sm:bottom-8 sm:right-8">
+        <button
+          type="button"
+          id="quick-add-fab-button"
+          onClick={() => setIsQuickAddOpen(true)}
+          className="group relative flex items-center gap-2.5 px-4 sm:px-5 py-3.5 bg-gradient-to-r from-amber-500 via-purple-600 to-pink-600 hover:from-amber-400 hover:to-pink-500 text-white rounded-full font-extrabold text-sm shadow-[0_8px_30px_rgba(147,51,234,0.5)] border border-amber-300/40 transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer ring-4 ring-purple-900/30 backdrop-blur-sm"
+          title="Quick Add: มอบดาวให้นักเรียนหลายคนพร้อมกันด้วย Checkbox"
+        >
+          <div className="relative">
+            <Sparkles className="w-5 h-5 text-amber-200 fill-amber-200 animate-pulse group-hover:rotate-12 transition-transform" />
+          </div>
+          <span className="font-heading tracking-wide">Quick Add</span>
+          <span className="hidden sm:inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-white/20 text-white font-medium backdrop-blur-xs">
+            หลายคน
+          </span>
+        </button>
+      </div>
+
+      {/* Quick Add Stars Modal (Multiple Students Checkbox) */}
+      <QuickAddModal
+        isOpen={isQuickAddOpen}
+        onClose={() => setIsQuickAddOpen(false)}
+      />
 
       {/* Student Profile Modal */}
       <StudentProfileModal

@@ -26,6 +26,13 @@ interface StudentContextType {
   setRoomKey: (key: string) => void;
   setSelectedClassroom: (classroom: string) => void;
   addStars: (studentId: string, amount: number, category: string, note?: string, event?: React.MouseEvent) => void;
+  addStarsToMultiple: (
+    studentIds: string[],
+    amount: number,
+    category: string,
+    note?: string,
+    event?: React.MouseEvent
+  ) => { success: boolean; count: number; totalStarsAwarded: number };
   deductStars: (studentId: string, amount: number, category?: string, note?: string) => void;
   addStudent: (
     name: string,
@@ -663,6 +670,84 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     syncToFirestore(nextStudents, rewards, nextHistory, categories);
   };
 
+  // Add stars to multiple students simultaneously
+  const addStarsToMultiple = (
+    studentIds: string[],
+    amount: number,
+    category: string,
+    note?: string,
+    event?: React.MouseEvent
+  ) => {
+    if (!studentIds || studentIds.length === 0) {
+      return { success: false, count: 0, totalStarsAwarded: 0 };
+    }
+
+    const cleanAmount = Math.max(0, amount);
+    if (cleanAmount <= 0) {
+      return { success: false, count: 0, totalStarsAwarded: 0 };
+    }
+
+    const now = Date.now();
+    const idSet = new Set(studentIds);
+    const newHistoryItems: StarHistoryItem[] = [];
+    let milestoneReached = false;
+
+    const nextStudents = students.map((s, idx) => {
+      if (!idSet.has(s.id)) return s;
+
+      const newStars = Math.max(0, Number((s.stars + cleanAmount).toFixed(1)));
+      const historyItem: StarHistoryItem = {
+        id: 'hist-' + now + '-' + idx + '-' + Math.random().toString(36).substring(2, 6),
+        studentId: s.id,
+        studentName: s.name,
+        classroom: s.classroom,
+        timestamp: now + idx,
+        amount: cleanAmount,
+        category,
+        note: note?.trim(),
+      };
+      newHistoryItems.push(historyItem);
+
+      if (
+        (newStars >= 10 && s.stars < 10) ||
+        (newStars >= 20 && s.stars < 20) ||
+        (newStars >= 30 && s.stars < 30)
+      ) {
+        milestoneReached = true;
+      }
+
+      return {
+        ...s,
+        stars: newStars,
+        starHistory: [historyItem, ...(s.starHistory || [])],
+      };
+    });
+
+    const nextHistory = [...newHistoryItems.reverse(), ...history];
+
+    setStudents(nextStudents);
+    setHistory(nextHistory);
+    playChime('star');
+
+    if (event) {
+      triggerStarBurst({ x: event.clientX, y: event.clientY });
+    } else {
+      triggerStarBurst();
+    }
+
+    if (milestoneReached || studentIds.length >= 3) {
+      triggerBigCelebration();
+    }
+
+    syncToFirestore(nextStudents, rewards, nextHistory, categories);
+
+    return {
+      success: true,
+      count: newHistoryItems.length,
+      totalStarsAwarded: Number((cleanAmount * newHistoryItems.length).toFixed(1)),
+    };
+  };
+
   // Deduct stars
   const deductStars = (
     studentId: string,
@@ -874,8 +959,13 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Backup & Restore
   const exportBackupJson = () => {
     const data = {
+      appName: 'Star Deeds (สมุดสะสมดาวความดี)',
       version: '2.0',
       exportedAt: new Date().toISOString(),
+      roomKey,
+      totalStudents: students.length,
+      totalHistory: history.length,
+      totalRewards: rewards.length,
       students,
       rewards,
       history,
@@ -886,26 +976,68 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const importBackupJson = (jsonStr: string) => {
     try {
-      const data = JSON.parse(jsonStr);
-      if (!data.students || !Array.isArray(data.students)) {
-        return { success: false, message: 'ไฟล์ข้อมูลไม่ถูกต้อง (ไม่พบรายชื่อนักเรียน)' };
+      if (!jsonStr || !jsonStr.trim()) {
+        return { success: false, message: 'กรุณาระบุข้อมูล JSON หรือเลือกไฟล์สำรองข้อมูล' };
       }
 
-      setStudents(data.students);
-      if (Array.isArray(data.rewards)) setRewards(data.rewards);
-      if (Array.isArray(data.history)) setHistory(data.history);
-      if (Array.isArray(data.categories)) setCategories(data.categories);
+      const data = JSON.parse(jsonStr.trim());
+      let parsedStudents: Student[] = [];
+      let parsedRewards: Reward[] | undefined = undefined;
+      let parsedHistory: StarHistoryItem[] | undefined = undefined;
+      let parsedCategories: string[] | undefined = undefined;
 
-      syncToFirestore(
-        data.students,
-        Array.isArray(data.rewards) ? data.rewards : rewards,
-        Array.isArray(data.history) ? data.history : history,
-        Array.isArray(data.categories) ? data.categories : categories
-      );
+      if (Array.isArray(data)) {
+        // Direct student array
+        parsedStudents = data;
+      } else if (data && typeof data === 'object') {
+        if (Array.isArray(data.students)) {
+          parsedStudents = data.students;
+        }
+        if (Array.isArray(data.rewards)) {
+          parsedRewards = data.rewards;
+        }
+        if (Array.isArray(data.history)) {
+          parsedHistory = data.history;
+        }
+        if (Array.isArray(data.categories)) {
+          parsedCategories = data.categories;
+        }
+      }
 
-      return { success: true, message: `นำเข้าข้อมูลสำเร็จ (${data.students.length} คน)` };
-    } catch (err) {
-      return { success: false, message: 'ไม่สามารถอ่านไฟล์ JSON ได้: รูปแบบผิดพลาด' };
+      if (!parsedStudents || parsedStudents.length === 0) {
+        return { success: false, message: 'ไฟล์ข้อมูลไม่ถูกต้อง: ไม่พบรายชื่อนักเรียนในโครงสร้างข้อมูล' };
+      }
+
+      // Validate & clean student objects
+      const cleanedStudents: Student[] = parsedStudents.map((s, idx) => ({
+        id: s.id || `std-${idx + 1}-${Date.now().toString(36)}`,
+        name: String(s.name || `นักเรียน ${idx + 1}`).trim(),
+        nickname: s.nickname ? String(s.nickname).trim() : undefined,
+        studentCode: s.studentCode ? String(s.studentCode).trim() : undefined,
+        classroom: String(s.classroom || 'ป.1/1').trim(),
+        avatarUrl: s.avatarUrl ? String(s.avatarUrl).trim() : undefined,
+        stars: typeof s.stars === 'number' ? s.stars : parseFloat(s.stars) || 0,
+        starHistory: Array.isArray(s.starHistory) ? s.starHistory : [],
+        claimedRewards: Array.isArray(s.claimedRewards) ? s.claimedRewards : [],
+      }));
+
+      const finalRewards = parsedRewards && parsedRewards.length > 0 ? parsedRewards : rewards;
+      const finalHistory = parsedHistory ? parsedHistory : history;
+      const finalCategories = parsedCategories && parsedCategories.length > 0 ? parsedCategories : categories;
+
+      setStudents(cleanedStudents);
+      if (parsedRewards && parsedRewards.length > 0) setRewards(finalRewards);
+      if (parsedHistory) setHistory(finalHistory);
+      if (parsedCategories && parsedCategories.length > 0) setCategories(finalCategories);
+
+      syncToFirestore(cleanedStudents, finalRewards, finalHistory, finalCategories);
+
+      return {
+        success: true,
+        message: `นำเข้าข้อมูลและกู้คืนสำเร็จเรียบร้อย! (นักเรียน ${cleanedStudents.length} คน, รางวัล ${finalRewards.length} รายการ, ประวัติ ${finalHistory.length} รายการ)`,
+      };
+    } catch (err: any) {
+      return { success: false, message: `ไม่สามารถอ่านไฟล์ JSON ได้: ${err?.message || 'รูปแบบไม่ถูกต้อง'}` };
     }
   };
 
@@ -934,6 +1066,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setRoomKey,
         setSelectedClassroom,
         addStars,
+        addStarsToMultiple,
         deductStars,
         addStudent,
         editStudent,

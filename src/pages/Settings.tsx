@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStudents } from '../context/StudentContext';
 import {
   getDesignatedSheetConfig,
@@ -38,6 +38,16 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  Download,
+  Upload,
+  HardDrive,
+  FileCode,
+  CheckCircle2,
+  FileUp,
+  FileDown,
+  Eye,
+  RotateCcw,
+  X,
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
@@ -55,6 +65,9 @@ export const SettingsPage: React.FC = () => {
     forcePushToCloud,
     forcePullFromCloud,
     importFromSheet,
+    exportBackupJson,
+    importBackupJson,
+    resetToSampleData,
   } = useStudents();
 
   // Sheets configuration state
@@ -79,6 +92,21 @@ export const SettingsPage: React.FC = () => {
 
   // Category management
   const [newCategoryInput, setNewCategoryInput] = useState('');
+
+  // JSON Backup & Restore State
+  const [pastedJson, setPastedJson] = useState('');
+  const [copiedJson, setCopiedJson] = useState(false);
+  const [showRawJson, setShowRawJson] = useState(false);
+  const [jsonValidation, setJsonValidation] = useState<{
+    valid: boolean;
+    message?: string;
+    studentCount?: number;
+    historyCount?: number;
+    rewardsCount?: number;
+  } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSheetConfig(getDesignatedSheetConfig());
@@ -294,6 +322,191 @@ export const SettingsPage: React.FC = () => {
     if (!newCategoryInput.trim()) return;
     addCategory(newCategoryInput.trim());
     setNewCategoryInput('');
+  };
+
+  // JSON Export & Import Handlers
+  const handleDownloadJson = () => {
+    try {
+      const jsonStr = exportBackupJson();
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const hours = String(now.getHours()).padStart(2, '0');
+      const mins = String(now.getMinutes()).padStart(2, '0');
+      a.href = url;
+      a.download = `star-deeds-backup-${dateStr}_${hours}${mins}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setFeedback({
+        type: 'success',
+        text: `ดาวน์โหลดไฟล์สำรองข้อมูล JSON ลงอุปกรณ์สำเร็จเรียบร้อย! (นักเรียน ${students.length} คน, ประวัติ ${history.length} รายการ)`,
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: `ไม่สามารถดาวน์โหลดไฟล์สำรองข้อมูลได้: ${err?.message || 'ข้อผิดพลาด'}`,
+      });
+    }
+  };
+
+  const handleCopyJson = () => {
+    try {
+      const jsonStr = exportBackupJson();
+      navigator.clipboard.writeText(jsonStr).then(() => {
+        setCopiedJson(true);
+        setTimeout(() => setCopiedJson(false), 2500);
+        setFeedback({
+          type: 'success',
+          text: 'คัดลอกโค้ดสำรองข้อมูล JSON ทั้งหมดลงคลิปบอร์ดแล้ว! สามารถนำไปเก็บหรือส่งต่อได้ทันที',
+        });
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        text: 'ไม่สามารถคัดลอกลงคลิปบอร์ดได้',
+      });
+    }
+  };
+
+  const validateJsonString = (str: string) => {
+    if (!str.trim()) {
+      setJsonValidation(null);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(str.trim());
+      let sCount = 0;
+      let hCount = 0;
+      let rCount = 0;
+
+      if (Array.isArray(parsed)) {
+        sCount = parsed.length;
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.students)) sCount = parsed.students.length;
+        if (Array.isArray(parsed.history)) hCount = parsed.history.length;
+        if (Array.isArray(parsed.rewards)) rCount = parsed.rewards.length;
+      }
+
+      if (sCount === 0) {
+        setJsonValidation({
+          valid: false,
+          message: 'โครงสร้าง JSON ถูกต้อง แต่ไม่พบข้อมูลรายชื่อนักเรียน (students array)',
+        });
+      } else {
+        setJsonValidation({
+          valid: true,
+          studentCount: sCount,
+          historyCount: hCount,
+          rewardsCount: rCount,
+          message: `ไฟล์ถูกต้อง พร้อมกู้คืน: นักเรียน ${sCount} คน, ประวัติ ${hCount} รายการ, รางวัล ${rCount} รายการ`,
+        });
+      }
+    } catch (e: any) {
+      setJsonValidation({
+        valid: false,
+        message: 'รูปแบบ JSON ไม่ถูกต้อง: ' + (e?.message || 'SyntaxError'),
+      });
+    }
+  };
+
+  const handlePasteJsonChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setPastedJson(val);
+    validateJsonString(val);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        const result = importBackupJson(content);
+        if (result.success) {
+          setFeedback({
+            type: 'success',
+            text: result.message,
+          });
+          setPastedJson('');
+          setJsonValidation(null);
+        } else {
+          setFeedback({
+            type: 'error',
+            text: result.message,
+          });
+        }
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDropFile = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        const result = importBackupJson(content);
+        if (result.success) {
+          setFeedback({
+            type: 'success',
+            text: result.message,
+          });
+          setPastedJson('');
+          setJsonValidation(null);
+        } else {
+          setFeedback({
+            type: 'error',
+            text: result.message,
+          });
+        }
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportPastedJson = () => {
+    if (!pastedJson.trim()) {
+      setFeedback({
+        type: 'error',
+        text: 'กรุณาวางโค้ด JSON ที่ต้องการนำเข้าก่อนกดยืนยัน',
+      });
+      return;
+    }
+    const result = importBackupJson(pastedJson);
+    if (result.success) {
+      setFeedback({
+        type: 'success',
+        text: result.message,
+      });
+      setPastedJson('');
+      setJsonValidation(null);
+    } else {
+      setFeedback({
+        type: 'error',
+        text: result.message,
+      });
+    }
+  };
+
+  const handleConfirmReset = () => {
+    resetToSampleData();
+    setShowResetConfirm(false);
+    setFeedback({
+      type: 'success',
+      text: 'รีเซ็ตข้อมูลทั้งหมดกลับเป็นชุดตัวอย่างเริ่มต้นเรียบร้อยแล้ว',
+    });
   };
 
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://your-app.vercel.app';
@@ -887,7 +1100,258 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* SECTION 3: CATEGORIES MANAGEMENT */}
+      {/* SECTION 3: MANUAL JSON BACKUP & RESTORE (DEVICE BACKUP) */}
+      <div className="bg-[#150a24]/90 border border-white/10 rounded-3xl p-6 shadow-xl relative overflow-hidden space-y-6">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-5">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30 shadow-md">
+              <HardDrive className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold font-heading text-white flex items-center gap-2">
+                <span>สำรอง & นำเข้าไฟล์ข้อมูล JSON ลงเครื่อง</span>
+                <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold">
+                  Offline JSON Backup
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                ดาวน์โหลดไฟล์สำรองข้อมูล (.json) เก็บไว้ในเครื่องคอมพิวเตอร์/มือถือของคุณครู หรือนำเข้าไฟล์เพื่อกู้คืนข้อมูลได้ทันที แม้ไม่มีอินเทอร์เน็ต
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              id="json-download-button"
+              onClick={handleDownloadJson}
+              className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs sm:text-sm shadow-lg shadow-indigo-950/50 cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>ดาวน์โหลดไฟล์ .json</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Dual Panels: Export Panel & Import Panel */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* PANEL 1: EXPORT (ส่งออกไฟล์ข้อมูล) */}
+          <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-white font-bold text-sm">
+                  <FileDown className="w-4 h-4 text-indigo-400" />
+                  <span>1. ส่งออกไฟล์สำรองข้อมูล (Export JSON)</span>
+                </div>
+                <span className="text-[11px] text-slate-400">ขนาด ~{(exportBackupJson().length / 1024).toFixed(1)} KB</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                บันทึกข้อมูลนักเรียนทั้งหมด คะแนนดาวสะสม ประวัติการแลกของรางวัล และหมวดหมู่ความดี รวมไว้ในไฟล์ JSON ไฟล์เดียว
+              </p>
+
+              {/* Stats badges */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5">
+                  <span className="text-slate-400 text-[10px] block">นักเรียน</span>
+                  <span className="text-white font-bold text-sm">{students.length} คน</span>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5">
+                  <span className="text-slate-400 text-[10px] block">ดาวสะสมรวม</span>
+                  <span className="text-amber-400 font-bold text-sm">
+                    {students.reduce((sum, s) => sum + s.stars, 0)} ⭐
+                  </span>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5">
+                  <span className="text-slate-400 text-[10px] block">ประวัติการให้ดาว</span>
+                  <span className="text-purple-300 font-bold text-sm">{history.length} รายการ</span>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5">
+                  <span className="text-slate-400 text-[10px] block">ของรางวัล</span>
+                  <span className="text-teal-300 font-bold text-sm">{rewards.length} ชิ้น</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadJson}
+                  className="flex-1 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>บันทึกไฟล์ .json ลงเครื่อง</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyJson}
+                  className="py-3 px-4 bg-white/10 hover:bg-white/15 border border-white/10 text-slate-200 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {copiedJson ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      <span className="text-emerald-300">คัดลอกแล้ว!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>คัดลอกโค้ด JSON</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRawJson(!showRawJson)}
+                className="w-full py-2 text-slate-400 hover:text-slate-200 text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>{showRawJson ? 'ซ่อนตัวอย่างโค้ด JSON' : 'ดูตัวอย่างโค้ด JSON'}</span>
+                {showRawJson ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+
+              {showRawJson && (
+                <div className="relative mt-2">
+                  <pre className="p-3 bg-black/60 border border-white/10 rounded-xl text-[11px] font-mono text-emerald-300 max-h-48 overflow-y-auto whitespace-pre-wrap break-all select-all">
+                    {exportBackupJson()}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* PANEL 2: IMPORT & RESTORE (นำเข้าและกู้คืน) */}
+          <div className="bg-purple-950/20 border border-purple-500/20 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-white font-bold text-sm">
+                  <FileUp className="w-4 h-4 text-purple-400" />
+                  <span>2. นำเข้าไฟล์กู้คืนข้อมูล (Import JSON)</span>
+                </div>
+                <span className="text-[11px] text-purple-300">ลากวางไฟล์ หรือ วางข้อความ</span>
+              </div>
+
+              {/* Drag and Drop Zone */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDropFile}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+                  dragOver
+                    ? 'border-purple-400 bg-purple-500/20'
+                    : 'border-white/15 bg-black/20 hover:border-purple-400/50 hover:bg-white/5'
+                }`}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".json,application/json"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <Upload className="w-6 h-6 text-purple-400 mx-auto mb-1.5" />
+                <span className="text-xs font-semibold text-white block">
+                  คลิกเพื่อเลือกไฟล์สำรองข้อมูล .json จากเครื่อง
+                </span>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
+                  หรือลากไฟล์ .json มาวางในกล่องนี้
+                </span>
+              </div>
+
+              {/* Paste JSON Textarea */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] text-slate-300 font-medium">
+                    หรือวางโค้ด JSON โดยตรง:
+                  </label>
+                  {pastedJson && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPastedJson('');
+                        setJsonValidation(null);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-rose-400 transition-colors"
+                    >
+                      ล้างข้อความ
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  value={pastedJson}
+                  onChange={handlePasteJsonChange}
+                  rows={3}
+                  placeholder='{"version":"2.0", "students": [...], "history": [...]}'
+                  className="w-full px-3 py-2 text-xs bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-purple-400 resize-none"
+                />
+
+                {/* Live validation indicator */}
+                {jsonValidation && (
+                  <div
+                    className={`p-2 rounded-xl text-[11px] flex items-start gap-1.5 ${
+                      jsonValidation.valid
+                        ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                        : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    {jsonValidation.valid ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <span>{jsonValidation.message}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleImportPastedJson}
+                disabled={!pastedJson.trim() || (jsonValidation !== null && !jsonValidation.valid)}
+                className="w-full py-3 px-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <Upload className="w-4 h-4" />
+                <span>กู้คืนข้อมูลจากโค้ด JSON</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Safety & Danger Zone / Reset */}
+        <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <RotateCcw className="w-4 h-4 text-amber-400 shrink-0" />
+            <div>
+              <span className="font-bold text-white block">ต้องการเริ่มต้นใหม่ หรือใช้ข้อมูลตัวอย่าง?</span>
+              <span className="text-slate-400 text-[11px]">
+                รีเซ็ตข้อมูลเป็นรายชื่อนักเรียนและของรางวัลตัวอย่างเริ่มต้นสำหรับทดสอบระบบ
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowResetConfirm(true)}
+            className="px-3.5 py-2 bg-white/10 hover:bg-rose-500/20 hover:border-rose-500/40 border border-white/10 text-slate-300 hover:text-rose-200 rounded-xl font-semibold transition-colors flex items-center justify-center gap-1.5 self-start sm:self-auto cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>รีเซ็ตเป็นข้อมูลตัวอย่าง</span>
+          </button>
+        </div>
+      </div>
+
+      {/* SECTION 4: CATEGORIES MANAGEMENT */}
       <div className="bg-[#150a24]/90 border border-white/10 rounded-3xl p-6 shadow-xl">
         <div className="flex items-center gap-3 border-b border-white/10 pb-4">
           <div className="w-10 h-10 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30">
@@ -934,6 +1398,42 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* RESET CONFIRMATION MODAL */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-[#150a24] border border-rose-500/40 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30 mx-auto">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-lg font-bold text-white">ยืนยันการรีเซ็ตข้อมูลทั้งหมด?</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                การดำเนินการนี้จะแทนที่รายชื่อนักเรียนและประวัติดาวทั้งหมดด้วยข้อมูลตัวอย่างเริ่มต้น
+                (หากต้องการเก็บข้อมูลเดิมไว้ กรุณากด <strong>ดาวน์โหลดไฟล์ .json</strong> ก่อน)
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                className="flex-1 py-2.5 px-4 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReset}
+                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-lg shadow-rose-950/50"
+              >
+                ยืนยันรีเซ็ต
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
