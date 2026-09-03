@@ -49,7 +49,12 @@ export const SettingsPage: React.FC = () => {
     addCategory,
     isCloudSynced,
     isCloudLoading,
+    lastCloudSyncedAt,
+    roomKey,
+    setRoomKey,
     forcePushToCloud,
+    forcePullFromCloud,
+    importFromSheet,
   } = useStudents();
 
   // Sheets configuration state
@@ -57,6 +62,10 @@ export const SettingsPage: React.FC = () => {
   const [customSheetInput, setCustomSheetInput] = useState(sheetConfig.spreadsheetId || '');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isPullingCloud, setIsPullingCloud] = useState(false);
+  const [isPushingCloud, setIsPushingCloud] = useState(false);
+  const [isImportingSheet, setIsImportingSheet] = useState(false);
+  const [roomKeyInput, setRoomKeyInput] = useState(roomKey);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
@@ -76,7 +85,8 @@ export const SettingsPage: React.FC = () => {
     setActiveSyncMethod(getSyncMethod());
     setAppsScriptInput(getAppsScriptUrl());
     setCustomClientIdInput(getEffectiveClientId());
-  }, []);
+    setRoomKeyInput(roomKey);
+  }, [roomKey]);
 
   const handleSyncMethodChange = (method: 'appsscript' | 'oauth') => {
     setActiveSyncMethod(method);
@@ -213,6 +223,72 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const handleSaveRoomKey = () => {
+    if (!roomKeyInput.trim()) return;
+    setRoomKey(roomKeyInput);
+    setFeedback({
+      type: 'success',
+      text: `เปลี่ยนรหัสเชื่อมต่อห้องเรียนเป็น "${roomKeyInput.trim()}" สำเร็จ! ระบบกำลังเชื่อมต่อและดึงข้อมูลจาก Cloud...`,
+    });
+  };
+
+  const handleForceCloudPull = async () => {
+    setIsPullingCloud(true);
+    setFeedback(null);
+    try {
+      const res = await forcePullFromCloud();
+      setFeedback({
+        type: res.success ? 'success' : 'error',
+        text: res.message,
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.message || 'ไม่สามารถดึงข้อมูลจาก Cloud ได้',
+      });
+    } finally {
+      setIsPullingCloud(false);
+    }
+  };
+
+  const handleForceCloudPush = async () => {
+    setIsPushingCloud(true);
+    setFeedback(null);
+    try {
+      const res = await forcePushToCloud();
+      setFeedback({
+        type: res.success ? 'success' : 'error',
+        text: res.message || 'ส่งข้อมูลเครื่องนี้ขึ้น Cloud สำเร็จเรียบร้อย!',
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.message || 'เกิดข้อผิดพลาดในการส่งข้อมูลขึ้น Cloud',
+      });
+    } finally {
+      setIsPushingCloud(false);
+    }
+  };
+
+  const handleImportFromSheetAction = async () => {
+    setIsImportingSheet(true);
+    setFeedback(null);
+    try {
+      const res = await importFromSheet();
+      setFeedback({
+        type: res.success ? 'success' : 'error',
+        text: res.message,
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลจาก Google Sheets',
+      });
+    } finally {
+      setIsImportingSheet(false);
+    }
+  };
+
   const handleAddCategorySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCategoryInput.trim()) return;
@@ -309,17 +385,30 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* PRIMARY SYNC BUTTON */}
-          <button
-            type="button"
-            id="sync-to-sheets-button"
-            onClick={handleSyncToSheets}
-            disabled={isSyncing}
-            className="px-5 py-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-emerald-950/50 hover:scale-102 active:scale-98 cursor-pointer"
-          >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'กำลังส่งออกข้อมูล...' : 'Sync to Sheets (ซิงก์ทันที)'}</span>
-          </button>
+          {/* PRIMARY SYNC & IMPORT BUTTONS */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              id="sync-to-sheets-button"
+              onClick={handleSyncToSheets}
+              disabled={isSyncing}
+              className="px-5 py-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs sm:text-sm shadow-lg shadow-emerald-950/50 cursor-pointer"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'กำลังส่งออก...' : '📤 Sync to Sheets (ส่งออก)'}</span>
+            </button>
+
+            <button
+              type="button"
+              id="import-from-sheets-button"
+              onClick={handleImportFromSheetAction}
+              disabled={isImportingSheet}
+              className="px-4 py-3 bg-white/10 hover:bg-white/15 border border-emerald-500/30 text-emerald-300 disabled:opacity-50 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer"
+            >
+              <RefreshCw className={`w-4 h-4 ${isImportingSheet ? 'animate-spin' : ''}`} />
+              <span>{isImportingSheet ? 'กำลังดึง...' : '📥 ดึงข้อมูลจาก Sheet'}</span>
+            </button>
+          </div>
         </div>
 
         {/* METHOD SELECTION TABS */}
@@ -675,8 +764,8 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* SECTION 2: FIREBASE FIRESTORE CLOUD DATABASE */}
-      <div className="bg-[#150a24]/90 border border-white/10 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+      {/* SECTION 2: FIREBASE FIRESTORE CLOUD DATABASE & CROSS-DEVICE SYNC */}
+      <div className="bg-[#150a24]/90 border border-white/10 rounded-3xl p-6 shadow-xl relative overflow-hidden space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-400/20 text-amber-400 flex items-center justify-center border border-amber-400/30">
@@ -684,33 +773,85 @@ export const SettingsPage: React.FC = () => {
             </div>
             <div>
               <h2 className="text-base font-bold font-heading text-white flex items-center gap-2">
-                <span>ฐานข้อมูล Firebase Firestore Cloud</span>
+                <span>ระบบซิงก์ข้อมูลข้ามเครื่อง (Firebase Firestore Cloud Sync)</span>
                 {isCloudSynced && (
                   <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
                 )}
               </h2>
               <p className="text-xs text-slate-400">
-                ซิงก์ข้อมูลแบบ Real-time ข้ามอุปกรณ์ (โทรศัพท์มือถือ, แท็บเล็ต, สมาร์ตทีวี)
+                ซิงก์ข้อมูลแบบ Real-time ข้ามอุปกรณ์ (คอมพิวเตอร์เครื่องใหม่, โทรศัพท์มือถือ, แท็บเล็ต, Smart TV)
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => forcePushToCloud()}
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-2 self-start sm:self-center cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>ซิงก์ขึ้น Firebase ทันที</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleForceCloudPull}
+              disabled={isPullingCloud}
+              className="px-3.5 py-2 bg-emerald-600/90 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+              title="ดึงข้อมูลล่าสุดจาก Cloud ลงมาที่เครื่องนี้"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isPullingCloud ? 'animate-spin' : ''}`} />
+              <span>{isPullingCloud ? 'กำลังดึง...' : 'ดึงข้อมูลจาก Cloud'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleForceCloudPush}
+              disabled={isPushingCloud}
+              className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+              title="ส่งข้อมูลเครื่องนี้ขึ้น Cloud"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isPushingCloud ? 'animate-spin' : ''}`} />
+              <span>{isPushingCloud ? 'กำลังส่ง...' : 'ส่งขึ้น Cloud'}</span>
+            </button>
+          </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        {/* Room Key Sync Setting */}
+        <div className="bg-purple-950/30 p-4 rounded-2xl border border-purple-500/20 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <KeyRound className="w-4 h-4 text-amber-400" />
+                <span>รหัสเชื่อมต่อห้องเรียน (Room Sync Key)</span>
+              </span>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                ใส่รหัสห้องเดียวกันในทุกเครื่อง (เช่น บนมือถือ, บนคอม, บนแท็บเล็ต) เพื่อให้ข้อมูลซิงก์ตรงกันทันที
+              </p>
+            </div>
+            <span className="text-xs px-2.5 py-1 rounded-lg bg-black/40 text-purple-300 font-mono border border-white/10 self-start sm:self-auto">
+              ห้องปัจจุบัน: {roomKey}
+            </span>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={roomKeyInput}
+              onChange={(e) => setRoomKeyInput(e.target.value)}
+              placeholder="ระบุรหัสห้อง เช่น main_star_tracker, room_p2_1, school_demo"
+              className="flex-1 px-3.5 py-2.5 text-xs bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-slate-500 font-mono focus:outline-none focus:ring-1 focus:ring-purple-400"
+            />
+            <button
+              type="button"
+              onClick={handleSaveRoomKey}
+              className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer shadow-md"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>บันทึกรหัสห้อง</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Sync Status Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div className="p-3 bg-white/5 rounded-2xl border border-white/5">
             <span className="text-slate-400 block text-[11px]">สถานะ Real-time:</span>
             <span className="font-semibold text-emerald-400 flex items-center gap-1 mt-0.5">
               <Check className="w-3.5 h-3.5" />
-              {isCloudLoading ? 'กำลังเชื่อมต่อ...' : isCloudSynced ? 'ออนไลน์ & เชื่อมต่อแล้ว' : 'โหมดสำรองในเครื่อง'}
+              {isCloudLoading ? 'กำลังเชื่อมต่อ...' : isCloudSynced ? 'ออนไลน์ & ซิงก์เรียลไทม์' : 'โหมดสำรองในเครื่อง'}
             </span>
           </div>
           <div className="p-3 bg-white/5 rounded-2xl border border-white/5">
@@ -720,6 +861,28 @@ export const SettingsPage: React.FC = () => {
           <div className="p-3 bg-white/5 rounded-2xl border border-white/5">
             <span className="text-slate-400 block text-[11px]">จำนวนประวัติบันทึก:</span>
             <span className="font-semibold text-white mt-0.5 block">{history.length} รายการ</span>
+          </div>
+        </div>
+
+        {/* How to sync on new machine guide */}
+        <div className="p-4 bg-white/5 rounded-2xl border border-white/10 text-xs text-slate-300 space-y-2">
+          <div className="font-bold text-amber-300 flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4" />
+            <span>คำแนะนำ: เมื่อเปิดแอปในเครื่องใหม่ / โทรศัพท์เครื่องใหม่</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-[11px] text-slate-300">
+            <div className="p-3 bg-black/20 rounded-xl border border-white/5 space-y-1">
+              <strong className="text-white block">1. ซิงก์ผ่าน Firebase Firestore Cloud:</strong>
+              <p className="leading-relaxed text-slate-400">
+                เมื่อเปิดเว็บในเครื่องใหม่ ให้ไปที่แถบตั้งค่า ตรวจสอบรหัสห้องให้ตรงกัน จากนั้นกดปุ่ม <span className="text-emerald-400 font-semibold">"ดึงข้อมูลจาก Cloud"</span> ข้อมูลทั้งหมดจากเครื่องแรกจะถูกโหลดเข้ามาทันที
+              </p>
+            </div>
+            <div className="p-3 bg-black/20 rounded-xl border border-white/5 space-y-1">
+              <strong className="text-white block">2. ดึงข้อมูลจาก Google Sheets:</strong>
+              <p className="leading-relaxed text-slate-400">
+                หรือสามารถกดปุ่ม <span className="text-purple-300 font-semibold">"ดึงข้อมูลจาก Sheet เข้าระบบ"</span> เพื่อดึงรายชื่อนักเรียนและคะแนนดาวจาก Google Sheet กลับเข้ามาในเครื่องใหม่ได้ตลอดเวลา
+              </p>
+            </div>
           </div>
         </div>
       </div>

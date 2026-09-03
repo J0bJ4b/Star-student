@@ -1,7 +1,88 @@
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Student, StarHistoryItem, Reward } from '../types';
 
-export const APPS_SCRIPT_TEMPLATE = `function doPost(e) {
+export const APPS_SCRIPT_TEMPLATE = `function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var result = {
+      status: 'success',
+      students: [],
+      history: [],
+      rewards: [],
+      sheetUrl: ss.getUrl(),
+      timestamp: new Date().toISOString()
+    };
+
+    // 1. อ่านข้อมูลแผ่นงาน: สรุปคะแนนนักเรียน
+    var studentSheet = ss.getSheetByName('สรุปคะแนนนักเรียน');
+    if (studentSheet) {
+      var data = studentSheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        var row = data[i];
+        if (row[2] && String(row[2]).trim() !== '') {
+          result.students.push({
+            id: 'std-' + (row[1] || i) + '-' + Math.random().toString(36).substring(2, 6),
+            studentCode: row[1] && row[1] !== '-' ? String(row[1]) : undefined,
+            name: String(row[2]).trim(),
+            nickname: row[3] && row[3] !== '-' ? String(row[3]).trim() : undefined,
+            classroom: String(row[4] || 'ป.1/1').trim(),
+            stars: parseFloat(row[5]) || 0,
+            starHistory: [],
+            claimedRewards: []
+          });
+        }
+      }
+    }
+
+    // 2. อ่านข้อมูลแผ่นงาน: ประวัติการให้ดาว
+    var historySheet = ss.getSheetByName('ประวัติการให้ดาว');
+    if (historySheet) {
+      var hData = historySheet.getDataRange().getValues();
+      for (var j = 1; j < hData.length; j++) {
+        var hRow = hData[j];
+        if (hRow[2] && String(hRow[2]).trim() !== '') {
+          var amt = parseFloat(String(hRow[4]).replace('+', '')) || 1;
+          result.history.push({
+            id: 'hist-' + j + '-' + Date.now(),
+            studentId: '',
+            studentName: String(hRow[2]).trim(),
+            classroom: String(hRow[3] || '').trim(),
+            amount: amt,
+            category: String(hRow[5] || 'ทำความดี'),
+            note: hRow[6] && hRow[6] !== '-' ? String(hRow[6]).trim() : undefined,
+            timestamp: new Date().getTime() - (j * 60000)
+          });
+        }
+      }
+    }
+
+    // 3. อ่านข้อมูลแผ่นงาน: รายการของรางวัล
+    var rewardSheet = ss.getSheetByName('รายการของรางวัล');
+    if (rewardSheet) {
+      var rData = rewardSheet.getDataRange().getValues();
+      for (var k = 1; k < rData.length; k++) {
+        var rRow = rData[k];
+        if (rRow[1] && String(rRow[1]).trim() !== '') {
+          result.rewards.push({
+            id: 'rew-' + k,
+            name: String(rRow[1]).trim(),
+            requiredStars: parseFloat(rRow[2]) || 10,
+            description: rRow[4] && rRow[4] !== '-' ? String(rRow[4]).trim() : ''
+          });
+        }
+      }
+    }
+
+    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      message: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -676,3 +757,56 @@ export async function exportToDesignatedSheet(
     timestamp: now,
   };
 }
+
+export interface SheetImportResult {
+  students: Student[];
+  history: StarHistoryItem[];
+  rewards: Reward[];
+  sheetUrl?: string;
+  source: 'appsscript' | 'oauth';
+}
+
+/**
+ * Service module: Imports students and history from Google Apps Script Web App
+ */
+export async function fetchDataFromAppsScript(customScriptUrl?: string): Promise<SheetImportResult> {
+  const url = (customScriptUrl || getAppsScriptUrl())?.trim();
+  if (!url) {
+    throw new Error('ไม่พบ URL ของ Google Apps Script Web App');
+  }
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Apps Script ตอบกลับด้วยสถานะผิดพลาด (HTTP ${res.status})`);
+  }
+
+  const data = await res.json();
+  if (data.status === 'error') {
+    throw new Error(data.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลจาก Google Sheets');
+  }
+
+  if (!Array.isArray(data.students) || data.students.length === 0) {
+    throw new Error('ไม่พบข้อมูลนักเรียนในแผ่นงาน "สรุปคะแนนนักเรียน" หรือสเปรดชีตยังว่างเปล่า');
+  }
+
+  const now = Date.now();
+  if (data.sheetUrl) {
+    localStorage.setItem(STORAGE_KEYS.SHEET_URL, data.sheetUrl);
+  }
+  localStorage.setItem(STORAGE_KEYS.LAST_SYNCED_AT, now.toString());
+
+  return {
+    students: data.students,
+    history: Array.isArray(data.history) ? data.history : [],
+    rewards: Array.isArray(data.rewards) && data.rewards.length > 0 ? data.rewards : [],
+    sheetUrl: data.sheetUrl,
+    source: 'appsscript',
+  };
+}
+

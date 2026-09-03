@@ -43,13 +43,20 @@ export const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose }) => 
     isCloudSynced,
     isCloudLoading,
     cloudSyncError,
+    roomKey,
+    setRoomKey,
     forcePushToCloud,
+    forcePullFromCloud,
+    importFromSheet,
   } = useStudents();
 
   const [activeTab, setActiveTab] = useState<'firebase' | 'sheets' | 'export' | 'import' | 'reset'>('firebase');
   const [pastedJson, setPastedJson] = useState('');
   const [copied, setCopied] = useState(false);
   const [isPushingCloud, setIsPushingCloud] = useState(false);
+  const [isPullingCloud, setIsPullingCloud] = useState(false);
+  const [isImportingSheet, setIsImportingSheet] = useState(false);
+  const [roomKeyInput, setRoomKeyInput] = useState(roomKey);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(
     null
   );
@@ -64,8 +71,9 @@ export const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose }) => 
       const cfg = getDesignatedSheetConfig();
       setSheetConfig(cfg);
       setCustomSheetInput(cfg.spreadsheetId || '');
+      setRoomKeyInput(roomKey);
     }
-  }, [isOpen]);
+  }, [isOpen, roomKey]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -159,10 +167,10 @@ export const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose }) => 
     setIsPushingCloud(true);
     setStatusMessage(null);
     try {
-      await forcePushToCloud();
+      const res = await forcePushToCloud();
       setStatusMessage({
-        type: 'success',
-        text: 'อัปเดตและซิงก์ข้อมูลขึ้น Firebase Firestore สำเร็จเรียบร้อย!',
+        type: res.success ? 'success' : 'error',
+        text: res.message || (res.success ? 'อัปเดตและซิงก์ข้อมูลขึ้น Firebase Firestore สำเร็จเรียบร้อย!' : 'เกิดข้อผิดพลาดในการซิงก์ขึ้นคลาวด์'),
       });
     } catch (err: any) {
       setStatusMessage({
@@ -171,6 +179,53 @@ export const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose }) => 
       });
     } finally {
       setIsPushingCloud(false);
+    }
+  };
+
+  const handleForceCloudPull = async () => {
+    setIsPullingCloud(true);
+    setStatusMessage(null);
+    try {
+      const res = await forcePullFromCloud();
+      setStatusMessage({
+        type: res.success ? 'success' : 'error',
+        text: res.message,
+      });
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลจากคลาวด์',
+      });
+    } finally {
+      setIsPullingCloud(false);
+    }
+  };
+
+  const handleSaveRoomKey = () => {
+    if (!roomKeyInput.trim()) return;
+    setRoomKey(roomKeyInput);
+    setStatusMessage({
+      type: 'success',
+      text: `เปลี่ยนรหัสเชื่อมต่อห้องเรียนเป็น "${roomKeyInput.trim()}" และกำลังดึงข้อมูล...`,
+    });
+  };
+
+  const handleImportFromSheet = async () => {
+    setIsImportingSheet(true);
+    setStatusMessage(null);
+    try {
+      const res = await importFromSheet();
+      setStatusMessage({
+        type: res.success ? 'success' : 'error',
+        text: res.message,
+      });
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลจาก Google Sheets',
+      });
+    } finally {
+      setIsImportingSheet(false);
     }
   };
 
@@ -421,27 +476,64 @@ export const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose }) => 
                 </div>
               </div>
 
+              <div className="bg-white/5 p-3.5 rounded-2xl border border-white/10 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>รหัสเชื่อมต่อห้องเรียน (Room Sync Key):</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">ใส่รหัสเดียวกันในทุกเครื่องเพื่อซิงก์ข้อมูล</span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={roomKeyInput}
+                    onChange={(e) => setRoomKeyInput(e.target.value)}
+                    placeholder="เช่น main_star_tracker, room_p2_1, school_demo"
+                    className="flex-1 px-3 py-2 text-xs bg-black/40 border border-white/15 rounded-xl text-white placeholder:text-slate-500 font-mono focus:outline-none focus:ring-1 focus:ring-purple-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveRoomKey}
+                    className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>เปลี่ยนรหัส</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-xs text-slate-300 space-y-2">
                 <p className="font-semibold text-amber-300 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4" />
-                  จุดเด่นของระบบ Firebase ในห้องเรียน:
+                  วิธีซิงก์ข้อมูลเมื่อเปิดในเครื่องใหม่ / โทรศัพท์เครื่องใหม่:
                 </p>
-                <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px]">
-                  <li>คุณครูให้ดาวผ่านโทรศัพท์มือถือ หน้าจอ Leaderboard บนสมาร์ตทีวีจะขยับคะแนนขึ้นทันที</li>
-                  <li>ข้อมูลไม่หาย แม้จะปิดเบราว์เซอร์หรือเปลี่ยนอุปกรณ์</li>
-                  <li>มีระบบ LocalStorage สำรองในตัว ใช้งานต่อเนื่องได้แม้เน็ตหลุดชั่วคราว</li>
-                </ul>
+                <ol className="list-decimal list-inside space-y-1 text-slate-300 text-[11px]">
+                  <li>ตรวจสอบว่ารหัสห้องเรียน (Room Key) ในเครื่องใหม่ตรงกับเครื่องแรก</li>
+                  <li>หากข้อมูลยังไม่ขึ้นทันที ให้กดปุ่ม <strong>"ดึงข้อมูลจาก Cloud ทันที"</strong> ด้านล่าง</li>
+                  <li>ระบบจะดาวน์โหลดรายชื่อนักเรียน คะแนนดาว และประวัติจากคลาวด์ลงเครื่องทันที</li>
+                </ol>
               </div>
 
-              <div className="pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleForceCloudPull}
+                  disabled={isPullingCloud}
+                  className="px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs shadow-lg shadow-emerald-950/40 cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isPullingCloud ? 'animate-spin' : ''}`} />
+                  <span>{isPullingCloud ? 'กำลังดึงข้อมูล...' : '🔄 ดึงข้อมูลจาก Cloud (เครื่องใหม่)'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleForceCloudSync}
                   disabled={isPushingCloud}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-purple-950/40"
+                  className="px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs shadow-lg shadow-purple-950/40 cursor-pointer"
                 >
                   <RefreshCw className={`w-4 h-4 ${isPushingCloud ? 'animate-spin' : ''}`} />
-                  <span>{isPushingCloud ? 'กำลังซิงก์ข้อมูล...' : 'กดซิงก์ข้อมูลขึ้น Firebase ทันที'}</span>
+                  <span>{isPushingCloud ? 'กำลังส่งข้อมูล...' : '☁️ ส่งข้อมูลเครื่องนี้ขึ้น Cloud'}</span>
                 </button>
               </div>
             </div>
@@ -542,10 +634,21 @@ export const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose }) => 
                   id="modal-sync-to-sheets"
                   onClick={handleSyncToGoogleSheets}
                   disabled={isSyncingSheet}
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-emerald-950/40"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs shadow-lg shadow-emerald-950/40 cursor-pointer"
                 >
                   <FileSpreadsheet className={`w-4 h-4 ${isSyncingSheet ? 'animate-spin' : ''}`} />
-                  <span>{isSyncingSheet ? 'กำลังส่งออกข้อมูลลง Google Sheets...' : 'Sync to Sheets (ส่งออกทันที)'}</span>
+                  <span>{isSyncingSheet ? 'กำลังส่งออก...' : '📤 ส่งข้อมูลไป Google Sheets'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="modal-import-from-sheets"
+                  onClick={handleImportFromSheet}
+                  disabled={isImportingSheet}
+                  className="flex-1 px-4 py-3 bg-white/10 hover:bg-white/15 text-emerald-300 border border-emerald-500/30 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isImportingSheet ? 'animate-spin' : ''}`} />
+                  <span>{isImportingSheet ? 'กำลังดึงข้อมูล...' : '📥 ดึงข้อมูลจาก Sheet เข้าระบบ'}</span>
                 </button>
               </div>
             </div>

@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   doc,
+  getDoc,
   onSnapshot,
   setDoc,
   serverTimestamp,
@@ -8,6 +9,7 @@ import {
 import { db } from '../firebase';
 import { Student, Reward, StarHistoryItem, DEFAULT_CATEGORIES } from '../types';
 import { triggerStarBurst, triggerBigCelebration, playChime } from '../utils/effects';
+import { fetchDataFromAppsScript, getAppsScriptUrl } from '../services/googleSheetsService';
 
 interface StudentContextType {
   students: Student[];
@@ -19,6 +21,9 @@ interface StudentContextType {
   isCloudSynced: boolean;
   isCloudLoading: boolean;
   cloudSyncError: string | null;
+  lastCloudSyncedAt: number | null;
+  roomKey: string;
+  setRoomKey: (key: string) => void;
   setSelectedClassroom: (classroom: string) => void;
   addStars: (studentId: string, amount: number, category: string, note?: string, event?: React.MouseEvent) => void;
   deductStars: (studentId: string, amount: number, category?: string, note?: string) => void;
@@ -44,7 +49,9 @@ interface StudentContextType {
   exportBackupJson: () => string;
   importBackupJson: (jsonStr: string) => { success: boolean; message: string };
   resetToSampleData: () => void;
-  forcePushToCloud: () => Promise<void>;
+  forcePushToCloud: () => Promise<{ success: boolean; message: string }>;
+  forcePullFromCloud: () => Promise<{ success: boolean; message: string; count?: number }>;
+  importFromSheet: () => Promise<{ success: boolean; message: string; count?: number }>;
 }
 
 const STORAGE_KEYS = {
@@ -52,6 +59,8 @@ const STORAGE_KEYS = {
   REWARDS: 'star_deeds_rewards_v2',
   HISTORY: 'star_deeds_history_v2',
   CATEGORIES: 'star_deeds_categories_v2',
+  ROOM_KEY: 'star_deeds_room_key_v2',
+  LAST_CLOUD_SYNC: 'star_deeds_last_cloud_sync_at',
 };
 
 const INITIAL_REWARDS: Reward[] = [
@@ -293,6 +302,23 @@ const FIRESTORE_DOC_PATH = {
 };
 
 export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Room Sync ID (allows multiple classrooms/schools to have separate synced clouds)
+  const [roomKey, setRoomKeyState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(STORAGE_KEYS.ROOM_KEY);
+      if (saved && saved.trim()) return saved.trim();
+    }
+    return 'main_star_tracker';
+  });
+
+  const [lastCloudSyncedAt, setLastCloudSyncedAt] = useState<number | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(STORAGE_KEYS.LAST_CLOUD_SYNC);
+      if (saved) return Number(saved);
+    }
+    return null;
+  });
+
   // Local state initialized from LocalStorage first for instant rendering
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.STUDENTS);
@@ -347,6 +373,17 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isCloudLoading, setIsCloudLoading] = useState(true);
   const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
 
+  // Ref to prevent initial local overwrites before cloud snapshot arrives
+  const isInitializedFromCloudRef = useRef(false);
+
+  const setRoomKey = (newKey: string) => {
+    const cleanKey = (newKey.trim() || 'main_star_tracker').replace(/[^a-zA-Z0-9_-]/g, '_');
+    setRoomKeyState(cleanKey);
+    localStorage.setItem(STORAGE_KEYS.ROOM_KEY, cleanKey);
+    setIsCloudLoading(true);
+    isInitializedFromCloudRef.current = false;
+  };
+
   // Sync to LocalStorage
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
@@ -364,17 +401,19 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(categories));
   }, [categories]);
 
-  // Real-time listener to Firestore
+  // Real-time listener to Firestore for current roomKey
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
+    setIsCloudLoading(true);
 
     try {
-      const docRef = doc(db, FIRESTORE_DOC_PATH.collection, FIRESTORE_DOC_PATH.docId);
+      const docRef = doc(db, 'classrooms', roomKey);
 
       unsubscribe = onSnapshot(
         docRef,
         (snapshot) => {
           setIsCloudLoading(false);
+          const now = Date.now();
           if (snapshot.exists()) {
             const data = snapshot.data();
             if (Array.isArray(data.students)) setStudents(data.students);
@@ -383,8 +422,12 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (Array.isArray(data.categories)) setCategories(data.categories);
             setIsCloudSynced(true);
             setCloudSyncError(null);
+            setLastCloudSyncedAt(now);
+            localStorage.setItem(STORAGE_KEYS.LAST_CLOUD_SYNC, now.toString());
+            isInitializedFromCloudRef.current = true;
           } else {
-            // First time: initialize Firestore with existing local data
+            // First time this roomKey document is accessed
+            isInitializedFromCloudRef.current = true;
             setDoc(
               docRef,
               {
@@ -392,6 +435,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 rewards,
                 history,
                 categories,
+                roomKey,
                 updatedAt: serverTimestamp(),
               },
               { merge: true }
@@ -399,11 +443,13 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
               .then(() => {
                 setIsCloudSynced(true);
                 setCloudSyncError(null);
+                setLastCloudSyncedAt(now);
+                localStorage.setItem(STORAGE_KEYS.LAST_CLOUD_SYNC, now.toString());
               })
               .catch((err) => {
                 console.warn('Initial Firestore push notice:', err);
-                // Fallback to local storage
                 setIsCloudSynced(false);
+                setCloudSyncError(err?.message || 'ไม่สามารถเชื่อมต่อ Firestore Cloud ได้');
               });
           }
         },
@@ -411,24 +457,30 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           console.warn('Firestore subscription notice:', error);
           setIsCloudLoading(false);
           setIsCloudSynced(false);
-          setCloudSyncError(error.message);
+          setCloudSyncError(error?.message || 'การเชื่อมต่อ Firebase Cloud ขัดข้อง');
         }
       );
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Firebase init error:', err);
       setIsCloudLoading(false);
       setIsCloudSynced(false);
+      setCloudSyncError(err?.message || 'ไม่สามารถเริ่มต้น Firebase SDK ได้');
     }
 
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [roomKey]);
 
   // Sync local changes to Firestore helper
-  const syncToFirestore = async (newStudents: Student[], newRewards: Reward[], newHistory: StarHistoryItem[], newCats: string[]) => {
+  const syncToFirestore = async (
+    newStudents: Student[],
+    newRewards: Reward[],
+    newHistory: StarHistoryItem[],
+    newCats: string[]
+  ): Promise<{ success: boolean; message: string }> => {
     try {
-      const docRef = doc(db, FIRESTORE_DOC_PATH.collection, FIRESTORE_DOC_PATH.docId);
+      const docRef = doc(db, 'classrooms', roomKey);
       await setDoc(
         docRef,
         {
@@ -436,21 +488,115 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           rewards: newRewards,
           history: newHistory,
           categories: newCats,
+          roomKey,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
+      const now = Date.now();
       setIsCloudSynced(true);
       setCloudSyncError(null);
+      setLastCloudSyncedAt(now);
+      localStorage.setItem(STORAGE_KEYS.LAST_CLOUD_SYNC, now.toString());
+      return { success: true, message: 'ส่งข้อมูลขึ้น Cloud สำเร็จ' };
     } catch (e: any) {
       console.warn('Firestore write notice (local state preserved):', e);
       setIsCloudSynced(false);
       setCloudSyncError(e.message || 'บันทึกลงคลาวด์ไม่สำเร็จ');
+      return { success: false, message: e.message || 'ไม่สามารถบันทึกลงคลาวด์ได้' };
     }
   };
 
-  const forcePushToCloud = async () => {
-    await syncToFirestore(students, rewards, history, categories);
+  // Force Push: Pushes current device state to Cloud
+  const forcePushToCloud = async (): Promise<{ success: boolean; message: string }> => {
+    const result = await syncToFirestore(students, rewards, history, categories);
+    return result;
+  };
+
+  // Force Pull: Reads directly from Firestore Cloud to update this machine
+  const forcePullFromCloud = async (): Promise<{ success: boolean; message: string; count?: number }> => {
+    try {
+      setIsCloudLoading(true);
+      const docRef = doc(db, 'classrooms', roomKey);
+      const snapshot = await getDoc(docRef);
+
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (Array.isArray(data.students)) setStudents(data.students);
+        if (Array.isArray(data.rewards)) setRewards(data.rewards);
+        if (Array.isArray(data.history)) setHistory(data.history);
+        if (Array.isArray(data.categories)) setCategories(data.categories);
+
+        const now = Date.now();
+        setIsCloudSynced(true);
+        setCloudSyncError(null);
+        setLastCloudSyncedAt(now);
+        setIsCloudLoading(false);
+        localStorage.setItem(STORAGE_KEYS.LAST_CLOUD_SYNC, now.toString());
+
+        const count = Array.isArray(data.students) ? data.students.length : 0;
+        return {
+          success: true,
+          message: `ดึงข้อมูลจาก Cloud สำเร็จ! (${count} คน, ประวัติ ${data.history?.length || 0} รายการ)`,
+          count,
+        };
+      } else {
+        setIsCloudLoading(false);
+        return {
+          success: false,
+          message: `ไม่พบข้อมูลห้อง "${roomKey}" บน Cloud (คุณสามารถกดปุ่ม "ส่งข้อมูลขึ้น Cloud" เพื่อสร้างได้)`,
+        };
+      }
+    } catch (err: any) {
+      setIsCloudLoading(false);
+      setIsCloudSynced(false);
+      setCloudSyncError(err?.message || 'ไม่สามารถดึงข้อมูลจาก Cloud ได้');
+      return {
+        success: false,
+        message: `ดึงข้อมูลจาก Cloud ไม่สำเร็จ: ${err?.message || 'ข้อผิดพลาดเครือข่าย'}`,
+      };
+    }
+  };
+
+  // Import from Google Sheet / Apps Script Webhook
+  const importFromSheet = async (): Promise<{ success: boolean; message: string; count?: number }> => {
+    try {
+      const scriptUrl = getAppsScriptUrl();
+      if (!scriptUrl) {
+        return {
+          success: false,
+          message: 'ยังไม่ได้ระบุ Google Apps Script Web App URL ในหน้า Settings',
+        };
+      }
+
+      const imported = await fetchDataFromAppsScript(scriptUrl);
+      if (imported.students.length > 0) {
+        setStudents(imported.students);
+        if (imported.history.length > 0) setHistory(imported.history);
+        if (imported.rewards.length > 0) setRewards(imported.rewards);
+
+        // Sync to cloud as well
+        await syncToFirestore(
+          imported.students,
+          imported.rewards.length > 0 ? imported.rewards : rewards,
+          imported.history.length > 0 ? imported.history : history,
+          categories
+        );
+
+        return {
+          success: true,
+          message: `ดึงข้อมูลจาก Google Sheets สำเร็จ! (${imported.students.length} คน)`,
+          count: imported.students.length,
+        };
+      } else {
+        return { success: false, message: 'ไม่พบรายชื่อนักเรียนใน Google Sheet' };
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.message || 'ไม่สามารถดึงข้อมูลจาก Google Sheet ได้',
+      };
+    }
   };
 
   // Derived classrooms
@@ -783,6 +929,9 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isCloudSynced,
         isCloudLoading,
         cloudSyncError,
+        lastCloudSyncedAt,
+        roomKey,
+        setRoomKey,
         setSelectedClassroom,
         addStars,
         deductStars,
@@ -800,6 +949,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         importBackupJson,
         resetToSampleData,
         forcePushToCloud,
+        forcePullFromCloud,
+        importFromSheet,
       }}
     >
       {children}
