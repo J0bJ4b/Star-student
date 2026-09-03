@@ -19,14 +19,36 @@ export const APPS_SCRIPT_TEMPLATE = `function doGet(e) {
       var data = studentSheet.getDataRange().getValues();
       for (var i = 1; i < data.length; i++) {
         var row = data[i];
-        if (row[2] && String(row[2]).trim() !== '') {
+        if (!row || row.length < 3) continue;
+
+        // ตรวจสอบว่ามี JSON สำรองฉบับเต็มในคอลัมน์ Q (row[16]) หรือไม่
+        var parsedStudent = null;
+        if (row[16] && typeof row[16] === 'string' && row[16].indexOf('{') === 0) {
+          try {
+            parsedStudent = JSON.parse(row[16]);
+          } catch(err) {}
+        }
+
+        if (parsedStudent && parsedStudent.name) {
+          result.students.push(parsedStudent);
+        } else if ((row[5] && String(row[5]).trim() !== '') || (row[2] && String(row[2]).trim() !== '')) {
+          // หากไม่มี JSON หรืออ่านจากเวอร์ชันเก่า ให้อ่านจากคอลัมน์มาตรฐาน
+          var stdId = row[2] ? String(row[2]).trim() : ('std-' + (row[3] || i) + '-' + Math.random().toString(36).substring(2, 6));
+          var stdCode = row[3] && row[3] !== '-' ? String(row[3]).trim() : undefined;
+          var avatar = row[4] && row[4] !== '-' ? String(row[4]).trim() : undefined;
+          var sName = String(row[5] || row[2] || '').trim();
+          var nick = row[6] && row[6] !== '-' ? String(row[6]).trim() : undefined;
+          var cRoom = String(row[7] || row[4] || 'ป.1/1').trim();
+          var sStars = parseFloat(row[8] || row[5]) || 0;
+
           result.students.push({
-            id: 'std-' + (row[1] || i) + '-' + Math.random().toString(36).substring(2, 6),
-            studentCode: row[1] && row[1] !== '-' ? String(row[1]) : undefined,
-            name: String(row[2]).trim(),
-            nickname: row[3] && row[3] !== '-' ? String(row[3]).trim() : undefined,
-            classroom: String(row[4] || 'ป.1/1').trim(),
-            stars: parseFloat(row[5]) || 0,
+            id: stdId,
+            studentCode: stdCode,
+            avatarUrl: avatar,
+            name: sName,
+            nickname: nick,
+            classroom: cRoom,
+            stars: sStars,
             starHistory: [],
             claimedRewards: []
           });
@@ -40,16 +62,17 @@ export const APPS_SCRIPT_TEMPLATE = `function doGet(e) {
       var hData = historySheet.getDataRange().getValues();
       for (var j = 1; j < hData.length; j++) {
         var hRow = hData[j];
-        if (hRow[2] && String(hRow[2]).trim() !== '') {
-          var amt = parseFloat(String(hRow[4]).replace('+', '')) || 1;
+        if ((hRow[3] && String(hRow[3]).trim() !== '') || (hRow[2] && String(hRow[2]).trim() !== '')) {
+          var sNameH = String(hRow[3] || hRow[2]).trim();
+          var amt = parseFloat(String(hRow[5] || hRow[4]).replace('+', '')) || 1;
           result.history.push({
-            id: 'hist-' + j + '-' + Date.now(),
-            studentId: '',
-            studentName: String(hRow[2]).trim(),
-            classroom: String(hRow[3] || '').trim(),
+            id: (hRow[8] && String(hRow[8]).trim()) || ('hist-' + j + '-' + Date.now()),
+            studentId: hRow[2] ? String(hRow[2]).trim() : '',
+            studentName: sNameH,
+            classroom: String(hRow[4] || hRow[3] || '').trim(),
             amount: amt,
-            category: String(hRow[5] || 'ทำความดี'),
-            note: hRow[6] && hRow[6] !== '-' ? String(hRow[6]).trim() : undefined,
+            category: String(hRow[6] || hRow[5] || 'ทำความดี'),
+            note: (hRow[7] || hRow[6]) && (hRow[7] || hRow[6]) !== '-' ? String(hRow[7] || hRow[6]).trim() : undefined,
             timestamp: new Date().getTime() - (j * 60000)
           });
         }
@@ -62,12 +85,12 @@ export const APPS_SCRIPT_TEMPLATE = `function doGet(e) {
       var rData = rewardSheet.getDataRange().getValues();
       for (var k = 1; k < rData.length; k++) {
         var rRow = rData[k];
-        if (rRow[1] && String(rRow[1]).trim() !== '') {
+        if ((rRow[2] && String(rRow[2]).trim() !== '') || (rRow[1] && String(rRow[1]).trim() !== '')) {
           result.rewards.push({
-            id: 'rew-' + k,
-            name: String(rRow[1]).trim(),
-            requiredStars: parseFloat(rRow[2]) || 10,
-            description: rRow[4] && rRow[4] !== '-' ? String(rRow[4]).trim() : ''
+            id: (rRow[1] && String(rRow[1]).trim()) || ('rew-' + k),
+            name: String(rRow[2] || rRow[1]).trim(),
+            requiredStars: parseFloat(rRow[3] || rRow[2]) || 10,
+            description: (rRow[5] || rRow[4]) && (rRow[5] || rRow[4]) !== '-' ? String(rRow[5] || rRow[4]).trim() : ''
           });
         }
       }
@@ -90,58 +113,168 @@ function doPost(e) {
     // 1. แผ่นงาน: สรุปคะแนนนักเรียน
     var studentSheet = ss.getSheetByName('สรุปคะแนนนักเรียน') || ss.insertSheet('สรุปคะแนนนักเรียน');
     studentSheet.clear();
-    var studentRows = [
-      ['ลำดับ', 'รหัสนักเรียน', 'ชื่อ-นามสกุล', 'ชื่อเล่น', 'ห้องเรียน', 'ดาวสะสม (ดวง)', 'รางวัลที่แลกแล้ว', 'อัปเดตล่าสุด']
+    var studentHeaders = [
+      'ลำดับ',
+      'รูปภาพโปรไฟล์',
+      'รหัสระบบ (ID)',
+      'รหัสประจำตัว',
+      'รูปภาพ (URL/Base64)',
+      'ชื่อ - นามสกุล',
+      'ชื่อเล่น',
+      'ห้องเรียน',
+      'ดาวสะสมปัจจุบัน (ดวง)',
+      'จำนวนครั้งที่ได้รับดาว',
+      'ประวัติดาวที่ได้รับล่าสุด',
+      'จำนวนรางวัลที่แลกแล้ว (ชิ้น)',
+      'รายการของรางวัลที่เคยแลก',
+      'ลิงก์ Student Portal',
+      'URL พอร์ทัลนักเรียน',
+      'QR Code พอร์ทัล',
+      'ข้อมูลสำรองฉบับเต็ม (JSON)',
+      'เวลาที่บันทึกล่าสุด'
     ];
+
+    var studentRows = [studentHeaders];
+    var baseUrl = (data.portalBaseUrl || '').trim();
+
     if (data.students && data.students.length > 0) {
       data.students.forEach(function(s, idx) {
+        var portalUrl = baseUrl ? (baseUrl + '/portal/' + s.id) : ('/portal/' + s.id);
+
+        var imgFormula = '';
+        if (s.avatarUrl && (s.avatarUrl.indexOf('http://') === 0 || s.avatarUrl.indexOf('https://') === 0)) {
+          imgFormula = '=IMAGE("' + s.avatarUrl + '")';
+        } else {
+          var avatarSeed = encodeURIComponent(s.nickname || s.name || ('std-' + (idx + 1)));
+          imgFormula = '=IMAGE("https://ui-avatars.com/api/?name=' + avatarSeed + '&background=7c3aed&color=fff&size=128&bold=true")';
+        }
+
+        var qrFormula = '=IMAGE("https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(portalUrl) + '")';
+        var portalLinkFormula = '=HYPERLINK("' + portalUrl + '", "คลิกเปิดพอร์ทัล")';
+
+        var histSummary = (s.starHistory || []).slice(0, 5).map(function(h) {
+          var dt = h.timestamp ? Utilities.formatDate(new Date(h.timestamp), 'GMT+7', 'dd/MM/yyyy') : '';
+          return (h.amount > 0 ? '+' : '') + h.amount + '★ ' + h.category + (dt ? ' (' + dt + ')' : '');
+        }).join('; ') || 'ยังไม่มีประวัติ';
+
+        var rewardSummary = (s.claimedRewards || []).map(function(c) {
+          var dt = c.claimedAt ? Utilities.formatDate(new Date(c.claimedAt), 'GMT+7', 'dd/MM/yyyy') : '';
+          return c.rewardName + ' (' + c.starsSpent + '★' + (dt ? ' ' + dt : '') + ')';
+        }).join('; ') || 'ยังไม่เคยแลก';
+
         studentRows.push([
           idx + 1,
+          imgFormula,
+          s.id,
           s.studentCode || '-',
+          s.avatarUrl || '-',
           s.name,
           s.nickname || '-',
           s.classroom,
           s.stars,
+          s.starHistory ? s.starHistory.length : 0,
+          histSummary,
           s.claimedRewards ? s.claimedRewards.length : 0,
-          new Date().toLocaleString('th-TH')
+          rewardSummary,
+          portalLinkFormula,
+          portalUrl,
+          qrFormula,
+          JSON.stringify(s),
+          Utilities.formatDate(new Date(), 'GMT+7', 'dd/MM/yyyy HH:mm:ss')
         ]);
       });
     }
-    studentSheet.getRange(1, 1, studentRows.length, studentRows[0].length).setValues(studentRows);
-    studentSheet.getRange(1, 1, 1, studentRows[0].length).setBackground('#f3e8ff').setFontWeight('bold');
+
+    studentSheet.getRange(1, 1, studentRows.length, studentHeaders.length).setValues(studentRows);
+    studentSheet.getRange(1, 1, 1, studentHeaders.length).setBackground('#ede9fe').setFontWeight('bold');
+    if (studentRows.length > 1) {
+      studentSheet.setRowHeights(2, studentRows.length - 1, 60);
+    }
+    studentSheet.setColumnWidth(2, 70); // Photo column
+    studentSheet.setColumnWidth(16, 70); // QR Code column
 
     // 2. แผ่นงาน: ประวัติการให้ดาว
     var historySheet = ss.getSheetByName('ประวัติการให้ดาว') || ss.insertSheet('ประวัติการให้ดาว');
     historySheet.clear();
-    var historyRows = [
-      ['ลำดับ', 'วัน-เวลา', 'ชื่อนักเรียน', 'ห้องเรียน', 'จำนวนดาว', 'หมวดหมู่ความดี', 'บันทึกเพิ่มเติม']
+    var historyHeaders = [
+      'ลำดับ',
+      'วัน-เวลา',
+      'รหัสนักเรียน (ID)',
+      'ชื่อนักเรียน',
+      'ห้องเรียน',
+      'จำนวนดาว',
+      'หมวดหมู่ความดี',
+      'บันทึกเพิ่มเติม',
+      'ID รายการ'
     ];
+    var historyRows = [historyHeaders];
     if (data.history && data.history.length > 0) {
       data.history.forEach(function(h, idx) {
         historyRows.push([
           idx + 1,
-          new Date(h.timestamp).toLocaleString('th-TH'),
+          h.timestamp ? Utilities.formatDate(new Date(h.timestamp), 'GMT+7', 'dd/MM/yyyy HH:mm:ss') : Utilities.formatDate(new Date(), 'GMT+7', 'dd/MM/yyyy HH:mm:ss'),
+          h.studentId || '-',
           h.studentName,
           h.classroom,
           h.amount > 0 ? '+' + h.amount : h.amount,
           h.category,
-          h.note || '-'
+          h.note || '-',
+          h.id || '-'
         ]);
       });
     }
-    historySheet.getRange(1, 1, historyRows.length, historyRows[0].length).setValues(historyRows);
-    historySheet.getRange(1, 1, 1, historyRows[0].length).setBackground('#fef3c7').setFontWeight('bold');
+    historySheet.getRange(1, 1, historyRows.length, historyHeaders.length).setValues(historyRows);
+    historySheet.getRange(1, 1, 1, historyHeaders.length).setBackground('#fef3c7').setFontWeight('bold');
 
-    // 3. แผ่นงาน: รายการของรางวัล
+    // 3. แผ่นงาน: ประวัติการแลกของรางวัล
+    var claimSheet = ss.getSheetByName('ประวัติการแลกของรางวัล') || ss.insertSheet('ประวัติการแลกของรางวัล');
+    claimSheet.clear();
+    var claimHeaders = [
+      'ลำดับ',
+      'วัน-เวลาที่แลก',
+      'รหัสนักเรียน (ID)',
+      'ชื่อนักเรียน',
+      'ห้องเรียน',
+      'ชื่อของรางวัล',
+      'ดาวที่ใช้แลก (ดวง)',
+      'ID รายการแลก'
+    ];
+    var claimRows = [claimHeaders];
+    var claimIdx = 1;
+    if (data.students && data.students.length > 0) {
+      data.students.forEach(function(s) {
+        if (s.claimedRewards && s.claimedRewards.length > 0) {
+          s.claimedRewards.forEach(function(c) {
+            claimRows.push([
+              claimIdx++,
+              c.claimedAt ? Utilities.formatDate(new Date(c.claimedAt), 'GMT+7', 'dd/MM/yyyy HH:mm:ss') : '-',
+              s.id,
+              s.name,
+              s.classroom,
+              c.rewardName,
+              c.starsSpent,
+              c.id || c.rewardId || '-'
+            ]);
+          });
+        }
+      });
+    }
+    if (claimRows.length === 1) {
+      claimRows.push(['-', '-', '-', 'ยังไม่มีรายการแลกรางวัล', '-', '-', '-', '-']);
+    }
+    claimSheet.getRange(1, 1, claimRows.length, claimHeaders.length).setValues(claimRows);
+    claimSheet.getRange(1, 1, 1, claimHeaders.length).setBackground('#dcfce7').setFontWeight('bold');
+
+    // 4. แผ่นงาน: รายการของรางวัล
     var rewardSheet = ss.getSheetByName('รายการของรางวัล') || ss.insertSheet('รายการของรางวัล');
     rewardSheet.clear();
-    var rewardRows = [
-      ['ลำดับ', 'ชื่อของรางวัล', 'ดาวที่ใช้แลก (ดวง)', 'สถานะ', 'คำอธิบาย']
-    ];
+    var rewardHeaders = ['ลำดับ', 'ID รางวัล', 'ชื่อของรางวัล', 'ดาวที่ใช้แลก (ดวง)', 'สถานะ', 'คำอธิบาย'];
+    var rewardRows = [rewardHeaders];
     if (data.rewards && data.rewards.length > 0) {
       data.rewards.forEach(function(r, idx) {
         rewardRows.push([
           idx + 1,
+          r.id || ('rew-' + (idx + 1)),
           r.name,
           r.requiredStars,
           'พร้อมให้แลก',
@@ -149,12 +282,12 @@ function doPost(e) {
         ]);
       });
     }
-    rewardSheet.getRange(1, 1, rewardRows.length, rewardRows[0].length).setValues(rewardRows);
-    rewardSheet.getRange(1, 1, 1, rewardRows[0].length).setBackground('#e0f2fe').setFontWeight('bold');
+    rewardSheet.getRange(1, 1, rewardRows.length, rewardHeaders.length).setValues(rewardRows);
+    rewardSheet.getRange(1, 1, 1, rewardHeaders.length).setBackground('#e0f2fe').setFontWeight('bold');
 
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
-      message: 'อัปเดตข้อมูลสำเร็จ ' + (data.students ? data.students.length : 0) + ' คน',
+      message: 'อัปเดตข้อมูลนักเรียนทั้งหมดและรูปภาพสำเร็จ (' + (data.students ? data.students.length : 0) + ' คน)',
       sheetUrl: ss.getUrl()
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -483,6 +616,7 @@ export async function createDesignatedSpreadsheet(titlePrefix?: string): Promise
       sheets: [
         { properties: { title: 'สรุปคะแนนนักเรียน' } },
         { properties: { title: 'ประวัติการให้ดาว' } },
+        { properties: { title: 'ประวัติการแลกของรางวัล' } },
         { properties: { title: 'รายการของรางวัล' } },
       ],
     }),
@@ -554,10 +688,12 @@ export async function syncViaAppsScript(
     throw new Error('กรุณาระบุ Web App URL ของ Google Apps Script ในหน้าการตั้งค่า (Settings)');
   }
 
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const sortedStudents = [...students].sort((a, b) => b.stars - a.stars);
   const payload = {
     action: 'sync',
     updatedAt: new Date().toISOString(),
+    portalBaseUrl: origin,
     students: sortedStudents,
     history,
     rewards,
@@ -641,67 +777,165 @@ export async function exportToDesignatedSheet(
   }
 
   // Ensure necessary tabs exist
-  await ensureSheetTabsExist(token, spreadsheetId, ['สรุปคะแนนนักเรียน', 'ประวัติการให้ดาว', 'รายการของรางวัล']);
+  await ensureSheetTabsExist(token, spreadsheetId, [
+    'สรุปคะแนนนักเรียน',
+    'ประวัติการให้ดาว',
+    'ประวัติการแลกของรางวัล',
+    'รายการของรางวัล',
+  ]);
 
-  // 1. Prepare Current Student State
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  // 1. Prepare Current Student State (All fields, Image Formula, QR Code, Portal links, JSON)
   const studentRows: any[][] = [
     [
       'ลำดับ',
+      'รูปภาพโปรไฟล์',
+      'รหัสระบบ (ID)',
       'รหัสประจำตัว',
+      'รูปภาพ (URL/Base64)',
       'ชื่อ - นามสกุล',
       'ชื่อเล่น',
       'ห้องเรียน',
       'ดาวสะสมปัจจุบัน (ดวง)',
       'จำนวนครั้งที่ได้รับดาว',
-      'ของรางวัลที่เคยแลก',
+      'ประวัติดาวที่ได้รับล่าสุด',
+      'จำนวนรางวัลที่แลกแล้ว (ชิ้น)',
+      'รายการของรางวัลที่เคยแลก',
+      'ลิงก์ Student Portal',
+      'URL พอร์ทัลนักเรียน',
+      'QR Code พอร์ทัล',
+      'ข้อมูลสำรองฉบับเต็ม (JSON)',
       'เวลาที่บันทึกล่าสุด',
     ],
   ];
 
   const sortedStudents = [...students].sort((a, b) => b.stars - a.stars);
   sortedStudents.forEach((st, idx) => {
-    const claimedText = (st.claimedRewards || [])
-      .map((c) => `${c.rewardName} (${c.starsSpent}★)`)
-      .join(', ');
+    const portalUrl = origin ? `${origin}/portal/${st.id}` : `/portal/${st.id}`;
+
+    let imgFormula = '';
+    if (st.avatarUrl && (st.avatarUrl.startsWith('http://') || st.avatarUrl.startsWith('https://'))) {
+      imgFormula = `=IMAGE("${st.avatarUrl}")`;
+    } else {
+      const avatarSeed = encodeURIComponent(st.nickname || st.name || `std-${idx + 1}`);
+      imgFormula = `=IMAGE("https://ui-avatars.com/api/?name=${avatarSeed}&background=7c3aed&color=fff&size=128&bold=true")`;
+    }
+
+    const qrFormula = `=IMAGE("https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(portalUrl)}")`;
+    const portalLinkFormula = `=HYPERLINK("${portalUrl}", "คลิกเปิดพอร์ทัล")`;
+
+    const histSummary = (st.starHistory || [])
+      .slice(0, 5)
+      .map((h) => {
+        const dt = h.timestamp ? new Date(h.timestamp).toLocaleDateString('th-TH') : '';
+        return `${h.amount > 0 ? '+' : ''}${h.amount}★ ${h.category}${dt ? ` (${dt})` : ''}`;
+      })
+      .join('; ') || 'ยังไม่มีประวัติ';
+
+    const rewardSummary = (st.claimedRewards || [])
+      .map((c) => {
+        const dt = c.claimedAt ? new Date(c.claimedAt).toLocaleDateString('th-TH') : '';
+        return `${c.rewardName} (${c.starsSpent}★${dt ? ` ${dt}` : ''})`;
+      })
+      .join('; ') || 'ยังไม่เคยแลก';
 
     studentRows.push([
       idx + 1,
+      imgFormula,
+      st.id,
       st.studentCode || '-',
+      st.avatarUrl || '-',
       st.name,
       st.nickname || '-',
       st.classroom,
       st.stars,
       st.starHistory?.length || 0,
-      claimedText || 'ยังไม่เคยแลก',
+      histSummary,
+      st.claimedRewards?.length || 0,
+      rewardSummary,
+      portalLinkFormula,
+      portalUrl,
+      qrFormula,
+      JSON.stringify(st),
       new Date().toLocaleString('th-TH'),
     ]);
   });
 
   // 2. Prepare History Logs
   const historyRows: any[][] = [
-    ['ลำดับ', 'วัน-เวลา', 'ชื่อนักเรียน', 'ห้องเรียน', 'จำนวนดาว', 'หมวดหมู่ความดี', 'หมายเหตุเพิ่มเติม'],
+    [
+      'ลำดับ',
+      'วัน-เวลา',
+      'รหัสนักเรียน (ID)',
+      'ชื่อนักเรียน',
+      'ห้องเรียน',
+      'จำนวนดาว',
+      'หมวดหมู่ความดี',
+      'บันทึกเพิ่มเติม',
+      'ID รายการ',
+    ],
   ];
 
   history.forEach((h, idx) => {
     historyRows.push([
       idx + 1,
       new Date(h.timestamp).toLocaleString('th-TH'),
+      h.studentId || '-',
       h.studentName,
       h.classroom,
       h.amount > 0 ? `+${h.amount}` : `${h.amount}`,
       h.category,
       h.note || '-',
+      h.id || '-',
     ]);
   });
 
-  // 3. Prepare Rewards State
+  // 3. Prepare Claimed Rewards Logs
+  const claimRows: any[][] = [
+    [
+      'ลำดับ',
+      'วัน-เวลาที่แลก',
+      'รหัสนักเรียน (ID)',
+      'ชื่อนักเรียน',
+      'ห้องเรียน',
+      'ชื่อของรางวัล',
+      'ดาวที่ใช้แลก (ดวง)',
+      'ID รายการแลก',
+    ],
+  ];
+
+  let claimIdx = 1;
+  sortedStudents.forEach((s) => {
+    if (s.claimedRewards && s.claimedRewards.length > 0) {
+      s.claimedRewards.forEach((c) => {
+        claimRows.push([
+          claimIdx++,
+          c.claimedAt ? new Date(c.claimedAt).toLocaleString('th-TH') : '-',
+          s.id,
+          s.name,
+          s.classroom,
+          c.rewardName,
+          c.starsSpent,
+          c.id || c.rewardId || '-',
+        ]);
+      });
+    }
+  });
+
+  if (claimRows.length === 1) {
+    claimRows.push(['-', '-', '-', 'ยังไม่มีรายการแลกรางวัล', '-', '-', '-', '-']);
+  }
+
+  // 4. Prepare Rewards Catalog
   const rewardRows: any[][] = [
-    ['ลำดับ', 'ชื่อของรางวัล', 'ดาวที่ใช้แลก (ดวง)', 'สถานะ', 'คำอธิบาย'],
+    ['ลำดับ', 'ID รางวัล', 'ชื่อของรางวัล', 'ดาวที่ใช้แลก (ดวง)', 'สถานะ', 'คำอธิบาย'],
   ];
 
   rewards.forEach((r, idx) => {
     rewardRows.push([
       idx + 1,
+      r.id || `rew-${idx + 1}`,
       r.name,
       r.requiredStars,
       'พร้อมให้แลก',
@@ -709,7 +943,7 @@ export async function exportToDesignatedSheet(
     ]);
   });
 
-  // 4. Batch Update to Designated Spreadsheet
+  // 5. Batch Update to Designated Spreadsheet
   const updateRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
     {
@@ -722,15 +956,19 @@ export async function exportToDesignatedSheet(
         valueInputOption: 'USER_ENTERED',
         data: [
           {
-            range: 'สรุปคะแนนนักเรียน!A1:I',
+            range: 'สรุปคะแนนนักเรียน!A1:R',
             values: studentRows,
           },
           {
-            range: 'ประวัติการให้ดาว!A1:G',
+            range: 'ประวัติการให้ดาว!A1:I',
             values: historyRows,
           },
           {
-            range: 'รายการของรางวัล!A1:E',
+            range: 'ประวัติการแลกของรางวัล!A1:H',
+            values: claimRows,
+          },
+          {
+            range: 'รายการของรางวัล!A1:F',
             values: rewardRows,
           },
         ],

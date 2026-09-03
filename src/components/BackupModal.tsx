@@ -611,19 +611,34 @@ export const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose }) => 
               </div>
 
               <div className="bg-white/5 p-4 rounded-2xl border border-white/10 space-y-2 text-xs text-slate-300">
-                <div className="font-semibold text-white">ข้อมูลที่จะถูกส่งออกอัตโนมัติ:</div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
-                  <div className="p-2 bg-white/5 rounded-xl border border-white/5">
-                    <span className="text-emerald-400 font-bold block">1. สรุปคะแนนนักเรียน</span>
-                    <span className="text-slate-400">รหัส, ชื่อ-สกุล, ชื่อเล่น, ห้อง, ดาวสะสม, รางวัลที่แลก</span>
+                <div className="font-semibold text-white flex items-center justify-between">
+                  <span>ข้อมูลที่ระบบส่งออกไปยัง Google Sheet (ครบถ้วนทุกรายละเอียด):</span>
+                  <span className="text-[10px] text-emerald-400 font-normal">รวมรูปภาพ & QR Code พอร์ทัล</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px]">
+                  <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 space-y-1">
+                    <span className="text-emerald-400 font-bold block">1. สรุปคะแนน & โปรไฟล์</span>
+                    <span className="text-slate-400 block text-[10px] leading-relaxed">
+                      รูปภาพนักเรียน, QR Code, รหัส, ชื่อ-สกุล, ชื่อเล่น, ห้อง, ดาวสะสม, ลิงก์ Portal, ข้อมูลสำรอง JSON
+                    </span>
                   </div>
-                  <div className="p-2 bg-white/5 rounded-xl border border-white/5">
-                    <span className="text-purple-400 font-bold block">2. ประวัติการให้ดาว</span>
-                    <span className="text-slate-400">วันเวลา, ชื่อเด็ก, หมวดความดี, จำนวนดาว, บันทึกหมายเหตุ</span>
+                  <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 space-y-1">
+                    <span className="text-amber-400 font-bold block">2. ประวัติการให้ดาว</span>
+                    <span className="text-slate-400 block text-[10px] leading-relaxed">
+                      วัน-เวลา, ชื่อนักเรียน, ห้อง, จำนวนดาว (+/-), หมวดความดี, บันทึกหมายเหตุ
+                    </span>
                   </div>
-                  <div className="p-2 bg-white/5 rounded-xl border border-white/5">
-                    <span className="text-amber-400 font-bold block">3. รายการของรางวัล</span>
-                    <span className="text-slate-400">ชื่อรางวัล, ดาวที่ใช้แลก, สถานะ</span>
+                  <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 space-y-1">
+                    <span className="text-teal-400 font-bold block">3. ประวัติการแลกรางวัล</span>
+                    <span className="text-slate-400 block text-[10px] leading-relaxed">
+                      วันเวลาที่แลก, ชื่อเด็ก, ของรางวัลที่แลก, จำนวนดาวที่ใช้
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 space-y-1">
+                    <span className="text-purple-400 font-bold block">4. รายการของรางวัล</span>
+                    <span className="text-slate-400 block text-[10px] leading-relaxed">
+                      ชื่อของรางวัล, ดาวที่ใช้แลก, สถานะ, คำอธิบาย
+                    </span>
                   </div>
                 </div>
               </div>

@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStudents } from '../context/StudentContext';
 import { Student } from '../types';
+import { StudentQrModal } from '../components/StudentQrModal';
+import { BatchQrPrintModal } from '../components/BatchQrPrintModal';
 import {
   Search,
   Star,
@@ -22,6 +24,7 @@ import {
   ExternalLink,
   ChevronLeft,
   Filter,
+  Printer,
 } from 'lucide-react';
 import { useLocation, useRoute } from 'wouter';
 
@@ -49,9 +52,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ studentIdParam }) 
     return null;
   });
 
-  // Share link toast / feedback state
+  // QR Code Modals
+  const [qrModalStudent, setQrModalStudent] = useState<Student | null>(null);
+  const [isBatchPrintOpen, setIsBatchPrintOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [showQrModal, setShowQrModal] = useState(false);
 
   // Sync if URL route changes or query string changes
   useEffect(() => {
@@ -186,36 +190,49 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ studentIdParam }) 
 
         {/* Classroom Filter Chips (Only show in browse mode) */}
         {!currentStudent && (
-          <div className="mt-5 pt-4 border-t border-white/10 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-purple-300 mr-1 flex items-center gap-1.5">
-              <School className="w-3.5 h-3.5" />
-              <span>ห้องเรียน:</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setActiveClassroom('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                activeClassroom === 'all'
-                  ? 'bg-amber-400 text-slate-950 font-bold shadow-md shadow-amber-400/20'
-                  : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
-              }`}
-            >
-              ทุกห้อง ({students.length})
-            </button>
-            {classrooms.map((c) => (
+          <div className="mt-5 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-purple-300 mr-1 flex items-center gap-1.5">
+                <School className="w-3.5 h-3.5" />
+                <span>ห้องเรียน:</span>
+              </span>
               <button
-                key={c}
                 type="button"
-                onClick={() => setActiveClassroom(c)}
+                onClick={() => setActiveClassroom('all')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeClassroom === c
+                  activeClassroom === 'all'
                     ? 'bg-amber-400 text-slate-950 font-bold shadow-md shadow-amber-400/20'
                     : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
                 }`}
               >
-                {c}
+                ทุกห้อง ({students.length})
               </button>
-            ))}
+              {classrooms.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setActiveClassroom(c)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    activeClassroom === c
+                      ? 'bg-amber-400 text-slate-950 font-bold shadow-md shadow-amber-400/20'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+
+            {/* Batch Print Action for Teachers */}
+            <button
+              type="button"
+              onClick={() => setIsBatchPrintOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="พิมพ์การ์ดและสติกเกอร์ QR Code นักเรียน"
+            >
+              <Printer className="w-3.5 h-3.5 text-emerald-400" />
+              <span>พิมพ์การ์ด QR นักเรียน (A4)</span>
+            </button>
           </div>
         )}
       </div>
@@ -259,12 +276,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ studentIdParam }) 
               </button>
               <button
                 type="button"
-                onClick={() => setShowQrModal(true)}
+                onClick={() => setQrModalStudent(currentStudent)}
                 className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-semibold border border-white/10 transition-colors cursor-pointer"
-                title="สร้าง QR Code สแกนดูคะแนน"
+                title="สร้าง QR Code สแกนดูคะแนน & พิมพ์การ์ด"
               >
                 <QrCode className="w-3.5 h-3.5 text-amber-400" />
-                <span>QR Code</span>
+                <span>QR Code การ์ดประจำตัว</span>
               </button>
             </div>
           </div>
@@ -631,22 +648,34 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ studentIdParam }) 
                     </div>
                   </button>
 
-                  {/* Footer with Star Score and Direct Link Copy Button */}
+                  {/* Footer with Star Score, QR Button and Direct Link Copy Button */}
                   <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const directUrl = getDirectShareLink(st.id);
-                        if (navigator.clipboard) navigator.clipboard.writeText(directUrl);
-                        setCopiedLink(true);
-                        setTimeout(() => setCopiedLink(false), 2000);
-                      }}
-                      className="text-slate-400 hover:text-amber-300 text-[11px] flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer"
-                      title="คัดลอกลิงก์เฉพาะของนักเรียนคนนี้"
-                    >
-                      <Copy className="w-3 h-3" />
-                      <span>แชร์ลิงก์</span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const directUrl = getDirectShareLink(st.id);
+                          if (navigator.clipboard) navigator.clipboard.writeText(directUrl);
+                          setCopiedLink(true);
+                          setTimeout(() => setCopiedLink(false), 2000);
+                        }}
+                        className="text-slate-400 hover:text-amber-300 text-[11px] flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer"
+                        title="คัดลอกลิงก์เฉพาะของนักเรียนคนนี้"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>แชร์</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQrModalStudent(st)}
+                        className="text-amber-400 hover:text-amber-300 text-[11px] flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-amber-400/10 cursor-pointer font-medium"
+                        title="ดู QR Code และพิมพ์การ์ดของนักเรียนคนนี้"
+                      >
+                        <QrCode className="w-3 h-3" />
+                        <span>QR</span>
+                      </button>
+                    </div>
 
                     <button
                       type="button"
@@ -664,55 +693,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ studentIdParam }) 
         </div>
       )}
 
-      {/* QR CODE MODAL FOR STUDENTS / PARENTS */}
-      {showQrModal && currentStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[#180b2d] border border-purple-500/30 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl relative">
-            <div className="w-12 h-12 rounded-2xl bg-amber-400/20 text-amber-400 mx-auto flex items-center justify-center mb-3 border border-amber-400/30">
-              <QrCode className="w-6 h-6" />
-            </div>
+      {/* INDIVIDUAL STUDENT QR MODAL */}
+      <StudentQrModal
+        student={qrModalStudent}
+        isOpen={!!qrModalStudent}
+        onClose={() => setQrModalStudent(null)}
+        onOpenBatchPrint={() => setIsBatchPrintOpen(true)}
+      />
 
-            <h3 className="font-heading font-bold text-white text-lg">
-              QR Code สมุดดาวของน้อง{currentStudent.nickname || currentStudent.name}
-            </h3>
-            <p className="text-xs text-slate-300 mt-1">
-              ผู้ปกครองหรือนักเรียนสามารถใช้กล้องมือถือสแกนเพื่อเปิดดูคะแนนดาวได้ทันที
-            </p>
-
-            {/* Generated QR Code Image (via standard Google Chart API) */}
-            <div className="my-5 p-4 bg-white rounded-2xl inline-block shadow-inner">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
-                  currentShareLink
-                )}`}
-                alt="QR Code"
-                className="w-44 h-44 mx-auto"
-              />
-            </div>
-
-            <div className="text-[11px] text-purple-300 font-mono break-all bg-white/5 p-2.5 rounded-xl border border-white/10 mb-4">
-              {currentShareLink}
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleCopyLink}
-                className="flex-1 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-xs font-bold transition-all"
-              >
-                {copiedLink ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowQrModal(false)}
-                className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-semibold transition-colors"
-              >
-                ปิด
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* BATCH QR PRINT MODAL */}
+      <BatchQrPrintModal
+        students={students}
+        classrooms={classrooms}
+        initialClassroom={activeClassroom !== 'all' ? activeClassroom : undefined}
+        isOpen={isBatchPrintOpen}
+        onClose={() => setIsBatchPrintOpen(false)}
+      />
     </div>
   );
 };

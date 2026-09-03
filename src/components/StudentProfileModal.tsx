@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Student, Reward } from '../types';
 import { useStudents } from '../context/StudentContext';
 import { StudentAvatar } from './StudentAvatar';
+import { StudentQrModal } from './StudentQrModal';
 import { compressImageFile } from '../utils/imageHelper';
 import {
   X,
@@ -54,6 +55,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const [claimFeedback, setClaimFeedback] = useState<{ success: boolean; message: string } | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -249,6 +251,15 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsQrModalOpen(true)}
+                className="px-3 py-1.5 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-all border border-amber-400/30 cursor-pointer"
+                title="ดูและพิมพ์ QR Code บัตรนักเรียน"
+              >
+                <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                <span>การ์ด QR</span>
+              </button>
               <button
                 type="button"
                 onClick={handleCopyDirectLink}
@@ -510,6 +521,13 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Student QR Modal */}
+      <StudentQrModal
+        student={currentStudent}
+        isOpen={isQrModalOpen}
+        onClose={() => setIsQrModalOpen(false)}
+      />
     </div>
   );
 };

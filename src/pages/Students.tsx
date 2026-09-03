@@ -4,6 +4,8 @@ import { Student } from '../types';
 import { EditStudentModal } from '../components/EditStudentModal';
 import { StudentProfileModal } from '../components/StudentProfileModal';
 import { StudentAvatar } from '../components/StudentAvatar';
+import { StudentQrModal } from '../components/StudentQrModal';
+import { BatchQrPrintModal } from '../components/BatchQrPrintModal';
 import {
   Users,
   UserPlus,
@@ -17,6 +19,8 @@ import {
   FileSpreadsheet,
   Share2,
   Check,
+  QrCode,
+  Printer,
 } from 'lucide-react';
 import { BackupModal } from '../components/BackupModal';
 
@@ -43,6 +47,8 @@ export const Students: React.FC = () => {
   // Modals state
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [profileStudent, setProfileStudent] = useState<Student | null>(null);
+  const [qrModalStudent, setQrModalStudent] = useState<Student | null>(null);
+  const [isBatchPrintOpen, setIsBatchPrintOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
 
@@ -112,11 +118,20 @@ export const Students: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsBatchPrintOpen(true)}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 text-amber-300 rounded-xl text-xs font-semibold border border-amber-500/30 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            title="พิมพ์การ์ดและสติกเกอร์ QR Code นักเรียนทั้งห้องเรียน"
+          >
+            <Printer className="w-4 h-4 text-amber-400" />
+            <span>พิมพ์การ์ด QR นักเรียน (A4)</span>
+          </button>
           <button
             type="button"
             onClick={() => setIsBackupOpen(true)}
-            className="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 rounded-xl text-xs font-semibold border border-emerald-500/30 flex items-center gap-1.5 transition-colors"
+            className="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 rounded-xl text-xs font-semibold border border-emerald-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
             title="ส่งออกหรือซิงก์ข้อมูลไป Google Sheets"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
@@ -384,6 +399,14 @@ export const Students: React.FC = () => {
                       <div className="inline-flex items-center gap-1.5">
                         <button
                           type="button"
+                          onClick={() => setQrModalStudent(student)}
+                          className="p-1.5 text-amber-400 hover:text-amber-300 hover:bg-amber-400/20 rounded-lg transition-colors cursor-pointer"
+                          title="สร้างและพิมพ์ QR Code การ์ดนักเรียน"
+                        >
+                          <QrCode className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleCopyLink(student.id)}
                           className="p-1.5 text-purple-300 hover:text-purple-100 hover:bg-purple-600/30 rounded-lg transition-colors"
                           title="คัดลอกลิงก์ให้นักเรียนคนนี้ดูคะแนน"
@@ -397,7 +420,7 @@ export const Students: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setProfileStudent(student)}
-                          className="p-1.5 text-amber-400 hover:text-amber-300 hover:bg-amber-400/20 rounded-lg transition-colors"
+                          className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                           title="ดูโปรไฟล์นักเรียน"
                         >
                           <Eye className="w-4 h-4" />
@@ -444,6 +467,23 @@ export const Students: React.FC = () => {
           setProfileStudent(null);
           setEditingStudent(st);
         }}
+      />
+
+      {/* Student QR Code Modal */}
+      <StudentQrModal
+        student={qrModalStudent}
+        isOpen={!!qrModalStudent}
+        onClose={() => setQrModalStudent(null)}
+        onOpenBatchPrint={() => setIsBatchPrintOpen(true)}
+      />
+
+      {/* Batch QR Code Print Modal */}
+      <BatchQrPrintModal
+        students={students}
+        classrooms={classrooms}
+        initialClassroom={selectedClassroom !== 'all' ? selectedClassroom : undefined}
+        isOpen={isBatchPrintOpen}
+        onClose={() => setIsBatchPrintOpen(false)}
       />
 
       {/* Database & Google Sheets Modal */}
