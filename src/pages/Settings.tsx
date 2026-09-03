@@ -48,6 +48,9 @@ import {
   Eye,
   RotateCcw,
   X,
+  Radio,
+  Clock,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
@@ -68,6 +71,11 @@ export const SettingsPage: React.FC = () => {
     exportBackupJson,
     importBackupJson,
     resetToSampleData,
+    driveSyncConfig,
+    updateDriveSyncConfig,
+    isDriveSyncing,
+    lastDriveSyncResult,
+    triggerDriveManualSync,
   } = useStudents();
 
   // Sheets configuration state
@@ -89,6 +97,11 @@ export const SettingsPage: React.FC = () => {
   const [copiedScript, setCopiedScript] = useState(false);
   const [showAppsScriptGuide, setShowAppsScriptGuide] = useState(true);
   const [showOAuthGuide, setShowOAuthGuide] = useState(true);
+
+  // Google Drive Auto-Sync Local Edit States
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(driveSyncConfig.enabled);
+  const [autoSyncInterval, setAutoSyncInterval] = useState<number>(driveSyncConfig.intervalMinutes);
+  const [autoSyncBackupMode, setAutoSyncBackupMode] = useState<'sheet' | 'json' | 'both'>(driveSyncConfig.backupMode);
 
   // Category management
   const [newCategoryInput, setNewCategoryInput] = useState('');
@@ -248,6 +261,38 @@ export const SettingsPage: React.FC = () => {
       });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleSaveDriveAutoSyncSettings = () => {
+    updateDriveSyncConfig({
+      enabled: autoSyncEnabled,
+      intervalMinutes: autoSyncInterval,
+      backupMode: autoSyncBackupMode,
+    });
+    setFeedback({
+      type: 'success',
+      text: autoSyncEnabled
+        ? `บันทึกการตั้งค่า Google Drive Auto-Sync สำเร็จ! (โหมด: ${
+            autoSyncInterval === 0 ? 'ซิงก์อัตโนมัติทุกครั้งที่มีการเปลี่ยนแปลง' : `ซิงก์อัตโนมัติตามรอบทุก ${autoSyncInterval} นาที`
+          })`
+        : 'ปิดการใช้งาน Google Drive Auto-Sync เรียบร้อยแล้ว',
+    });
+  };
+
+  const handleManualDriveSync = async () => {
+    setFeedback(null);
+    try {
+      const res = await triggerDriveManualSync();
+      setFeedback({
+        type: res.success ? 'success' : 'error',
+        text: res.message,
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.message || 'ไม่สามารถสำรองข้อมูลไปยัง Google Drive ได้',
+      });
     }
   };
 
@@ -977,7 +1022,152 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* SECTION 2: FIREBASE FIRESTORE CLOUD DATABASE & CROSS-DEVICE SYNC */}
+      {/* SECTION 2: GOOGLE DRIVE AUTO-SYNC MODULE */}
+      <div className="bg-[#150a24]/90 border border-purple-500/20 rounded-3xl p-6 shadow-xl relative overflow-hidden space-y-5">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-5">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-purple-600/20 text-purple-300 flex items-center justify-center border border-purple-500/30 shadow-md">
+              <Cloud className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold font-heading text-white">
+                  ระบบสำรองข้อมูล Google Drive อัตโนมัติ (Drive Auto-Sync)
+                </h2>
+                {driveSyncConfig.enabled ? (
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1">
+                    <Check className="w-3 h-3" /> เปิดใช้งาน Auto-Sync
+                  </span>
+                ) : (
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-500/20 text-slate-300 border border-slate-500/30 font-semibold">
+                    ปิดอยู่
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                สำรองข้อมูลนักเรียนและประวัติดาวขึ้น Google Drive / Sheets อัตโนมัติเมื่อมีการเปลี่ยนแปลง หรือตามรอบเวลาที่กำหนด
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleManualDriveSync}
+            disabled={isDriveSyncing}
+            className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 text-xs sm:text-sm shadow-lg shadow-purple-950/40 cursor-pointer shrink-0"
+          >
+            <RefreshCw className={`w-4 h-4 ${isDriveSyncing ? 'animate-spin' : ''}`} />
+            <span>{isDriveSyncing ? 'กำลังซิงก์ Drive...' : '⚡ สำรองขึ้น Drive ทันที'}</span>
+          </button>
+        </div>
+
+        {/* Auto Sync Settings Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Option 1: Toggle Enabled */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2.5">
+            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-purple-400" />
+              <span>การเปิดใช้งาน Auto-Sync</span>
+            </span>
+            <p className="text-[11px] text-slate-400">
+              เมื่อเปิดใช้งาน ระบบจะตรวจสอบและส่งข้อมูลขึ้น Drive / Sheets ให้อัตโนมัติ
+            </p>
+            <label className="flex items-center gap-3 cursor-pointer pt-2">
+              <input
+                type="checkbox"
+                checked={autoSyncEnabled}
+                onChange={(e) => setAutoSyncEnabled(e.target.checked)}
+                className="w-5 h-5 rounded border-white/20 text-purple-600 focus:ring-purple-500 bg-black/40 cursor-pointer"
+              />
+              <span className="text-xs font-semibold text-white">
+                {autoSyncEnabled ? 'เปิดระบบ Auto-Sync อัตโนมัติ' : 'ปิดระบบ Auto-Sync'}
+              </span>
+            </label>
+          </div>
+
+          {/* Option 2: Interval Selection */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2.5">
+            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-amber-400" />
+              <span>รอบเวลาการซิงก์ (Sync Interval)</span>
+            </span>
+            <p className="text-[11px] text-slate-400">
+              เลือกจังหวะเวลาในการส่งข้อมูลไปบันทึกบน Google Drive
+            </p>
+            <select
+              value={autoSyncInterval}
+              onChange={(e) => setAutoSyncInterval(parseInt(e.target.value, 10))}
+              disabled={!autoSyncEnabled}
+              className="w-full px-3 py-2 text-xs bg-black/40 border border-white/15 rounded-xl text-white disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-purple-400"
+            >
+              <option value={0}>⚡ ทุกครั้งที่มีการเปลี่ยนแปลง (On Every Change - Debounced)</option>
+              <option value={5}>⏱️ ทุกๆ 5 นาที (Every 5 minutes)</option>
+              <option value={15}>⏱️ ทุกๆ 15 นาที (Every 15 minutes)</option>
+              <option value={30}>⏱️ ทุกๆ 30 นาที (Every 30 minutes)</option>
+              <option value={60}>⏱️ ทุกๆ 1 ชั่วโมง (Every 1 hour)</option>
+            </select>
+          </div>
+
+          {/* Option 3: Target Mode */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2.5">
+            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>รูปแบบการสำรอง (Backup Target)</span>
+            </span>
+            <p className="text-[11px] text-slate-400">
+              เลือกไฟล์ปลายทางที่ต้องการให้บันทึกบนบัญชี Google
+            </p>
+            <select
+              value={autoSyncBackupMode}
+              onChange={(e) => setAutoSyncBackupMode(e.target.value as any)}
+              disabled={!autoSyncEnabled}
+              className="w-full px-3 py-2 text-xs bg-black/40 border border-white/15 rounded-xl text-white disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-purple-400"
+            >
+              <option value="both">🌟 ทั้งสองรูปแบบ (Google Sheets + ไฟล์ JSON บน Drive)</option>
+              <option value="sheet">📊 เฉพาะ Google Sheets (อัปเดตสเปรดชีต)</option>
+              <option value="json">📁 เฉพาะไฟล์สำรอง JSON บน Google Drive</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Save button & Status preview */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+          <div className="text-xs text-slate-300 flex items-center gap-2">
+            <span className="text-slate-400">สำรองล่าสุด:</span>
+            {driveSyncConfig.lastBackupTime ? (
+              <span className="font-semibold text-emerald-300">
+                {new Date(driveSyncConfig.lastBackupTime).toLocaleString('th-TH')}
+              </span>
+            ) : (
+              <span className="text-slate-500">ยังไม่มีประวัติการซิงก์รอบนี้</span>
+            )}
+            {driveSyncConfig.lastBackupFileLink && (
+              <a
+                href={driveSyncConfig.lastBackupFileLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-purple-400 hover:underline inline-flex items-center gap-1 font-semibold ml-1"
+              >
+                <span>เปิดดูไฟล์ล่าสุด</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveDriveAutoSyncSettings}
+            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>บันทึกการตั้งค่า Auto-Sync</span>
+          </button>
+        </div>
+      </div>
+
+      {/* SECTION 3: FIREBASE FIRESTORE CLOUD DATABASE & CROSS-DEVICE SYNC */}
       <div className="bg-[#150a24]/90 border border-white/10 rounded-3xl p-6 shadow-xl relative overflow-hidden space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
           <div className="flex items-center gap-3">

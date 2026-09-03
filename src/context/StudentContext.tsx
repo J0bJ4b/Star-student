@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   doc,
   getDoc,
@@ -10,6 +10,13 @@ import { db } from '../firebase';
 import { Student, Reward, StarHistoryItem, DEFAULT_CATEGORIES } from '../types';
 import { triggerStarBurst, triggerBigCelebration, playChime } from '../utils/effects';
 import { fetchDataFromAppsScript, getAppsScriptUrl } from '../services/googleSheetsService';
+import {
+  getDriveAutoSyncConfig,
+  setDriveAutoSyncConfig,
+  performDriveAutoSync,
+  DriveAutoSyncConfig,
+  DriveBackupResult,
+} from '../services/googleDriveSyncService';
 
 interface StudentContextType {
   students: Student[];
@@ -59,6 +66,12 @@ interface StudentContextType {
   forcePushToCloud: () => Promise<{ success: boolean; message: string }>;
   forcePullFromCloud: () => Promise<{ success: boolean; message: string; count?: number }>;
   importFromSheet: () => Promise<{ success: boolean; message: string; count?: number }>;
+  // Google Drive Auto-Sync Extensions
+  driveSyncConfig: DriveAutoSyncConfig;
+  updateDriveSyncConfig: (config: Partial<DriveAutoSyncConfig>) => void;
+  isDriveSyncing: boolean;
+  lastDriveSyncResult: DriveBackupResult | null;
+  triggerDriveManualSync: () => Promise<DriveBackupResult>;
 }
 
 const STORAGE_KEYS = {
@@ -380,8 +393,94 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isCloudLoading, setIsCloudLoading] = useState(true);
   const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
 
+  // Google Drive Auto-Sync State
+  const [driveSyncConfig, setDriveSyncConfigState] = useState<DriveAutoSyncConfig>(() => getDriveAutoSyncConfig());
+  const [isDriveSyncing, setIsDriveSyncing] = useState<boolean>(false);
+  const [lastDriveSyncResult, setLastDriveSyncResult] = useState<DriveBackupResult | null>(null);
+  const autoSyncDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isFirstMountRef = useRef<boolean>(true);
+
   // Ref to prevent initial local overwrites before cloud snapshot arrives
   const isInitializedFromCloudRef = useRef(false);
+
+  const updateDriveSyncConfig = useCallback((newConfig: Partial<DriveAutoSyncConfig>) => {
+    const updated = setDriveAutoSyncConfig(newConfig);
+    setDriveSyncConfigState(updated);
+  }, []);
+
+  const triggerDriveManualSync = useCallback(async (): Promise<DriveBackupResult> => {
+    setIsDriveSyncing(true);
+    try {
+      const result = await performDriveAutoSync(students, history, rewards, categories);
+      setLastDriveSyncResult(result);
+      setDriveSyncConfigState(getDriveAutoSyncConfig());
+      return result;
+    } catch (err: any) {
+      const failRes: DriveBackupResult = {
+        success: false,
+        message: err?.message || 'การสำรองข้อมูลไปยัง Google Drive ล้มเหลว',
+        timestamp: Date.now(),
+      };
+      setLastDriveSyncResult(failRes);
+      return failRes;
+    } finally {
+      setIsDriveSyncing(false);
+    }
+  }, [students, history, rewards, categories]);
+
+  // Scheduled interval sync or on-change auto-sync engine
+  useEffect(() => {
+    if (!driveSyncConfig.enabled) {
+      return;
+    }
+
+    // Interval mode (> 0 minutes)
+    if (driveSyncConfig.intervalMinutes > 0) {
+      const intervalMs = driveSyncConfig.intervalMinutes * 60 * 1000;
+      const intervalId = setInterval(() => {
+        performDriveAutoSync(students, history, rewards, categories)
+          .then((res) => {
+            setLastDriveSyncResult(res);
+            setDriveSyncConfigState(getDriveAutoSyncConfig());
+          })
+          .catch((e) => console.warn('Interval Drive sync note:', e));
+      }, intervalMs);
+
+      return () => clearInterval(intervalId);
+    }
+  }, [driveSyncConfig.enabled, driveSyncConfig.intervalMinutes, students, history, rewards, categories]);
+
+  // On-change auto-sync engine (intervalMinutes === 0)
+  useEffect(() => {
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
+      return;
+    }
+
+    if (!driveSyncConfig.enabled || driveSyncConfig.intervalMinutes !== 0) {
+      return;
+    }
+
+    // Debounce to batch multiple rapid changes (e.g., giving stars to multiple students)
+    if (autoSyncDebounceTimerRef.current) {
+      clearTimeout(autoSyncDebounceTimerRef.current);
+    }
+
+    autoSyncDebounceTimerRef.current = setTimeout(() => {
+      performDriveAutoSync(students, history, rewards, categories)
+        .then((res) => {
+          setLastDriveSyncResult(res);
+          setDriveSyncConfigState(getDriveAutoSyncConfig());
+        })
+        .catch((e) => console.warn('Change-triggered Drive sync note:', e));
+    }, 4000); // 4-second debounce
+
+    return () => {
+      if (autoSyncDebounceTimerRef.current) {
+        clearTimeout(autoSyncDebounceTimerRef.current);
+      }
+    };
+  }, [students, history, rewards, categories, driveSyncConfig.enabled, driveSyncConfig.intervalMinutes]);
 
   const setRoomKey = (newKey: string) => {
     const cleanKey = (newKey.trim() || 'main_star_tracker').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1084,6 +1183,11 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         forcePushToCloud,
         forcePullFromCloud,
         importFromSheet,
+        driveSyncConfig,
+        updateDriveSyncConfig,
+        isDriveSyncing,
+        lastDriveSyncResult,
+        triggerDriveManualSync,
       }}
     >
       {children}
