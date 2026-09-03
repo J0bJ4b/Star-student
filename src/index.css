@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Noto Sans Thai', sans-serif;
+    background-color: #0f071a;
+    color: #e2e8f0;
+  }
+  
+  h1, h2, h3, h4, h5, h6, button, .font-heading {
+    font-family: 'Kanit', 'Noto Sans Thai', sans-serif;
+  }
+}
+
+/* Immersive Dark Theme Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #120524;
+}
+::-webkit-scrollbar-thumb {
+  background: #3b1968;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6b21a8;
+}
+

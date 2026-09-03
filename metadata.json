@@ -1,0 +1,8 @@
+{
+  "name": "ระบบเก็บคะแนนความดี (Star Deeds)",
+  "description": "ระบบเก็บคะแนนความดีสำหรับนักเรียนในห้องเรียน พร้อม Firebase Firestore Real-time Cloud Database, ระบบซิงก์ข้อมูลลง Google Sheets & Google Drive, ระบบสะสมดาว แลกของรางวัล และ Leaderboard",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
